@@ -1,10 +1,10 @@
 import db from './db.js'
 
 const SEED_BEANS = [
-  { name: '耶加雪菲·科契尔', origin: '埃塞俄比亚', variety: 'Heirloom', process: '水洗' },
-  { name: '曼特宁·黄金', origin: '印度尼西亚·苏门答腊', variety: 'Typica', process: '湿刨法' },
-  { name: '瑰夏·翡翠庄园', origin: '巴拿马', variety: 'Geisha', process: '日晒' },
-  { name: '哥伦比亚·慧兰', origin: '哥伦比亚', variety: 'Caturra', process: '水洗' },
+  { name: '耶加雪菲·科契尔', origin: '埃塞俄比亚', variety: 'Heirloom', process: '水洗', flavorTags: ['花香', '茉莉', '柑橘', '柠檬', '茶感'] },
+  { name: '曼特宁·黄金', origin: '印度尼西亚·苏门答腊', variety: 'Typica', process: '湿刨法', flavorTags: ['草本', '泥土', '木质', '黑巧克力', '烟熏'] },
+  { name: '瑰夏·翡翠庄园', origin: '巴拿马', variety: 'Geisha', process: '日晒', flavorTags: ['花香', '茉莉', '桃子', '热带水果', '蜂蜜'] },
+  { name: '哥伦比亚·慧兰', origin: '哥伦比亚', variety: 'Caturra', process: '水洗', flavorTags: ['焦糖', '红糖', '坚果', '巧克力', '杏子'] },
 ]
 
 const SEED_ROASTS = [
