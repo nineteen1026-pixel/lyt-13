@@ -28,12 +28,66 @@ const SEED_RATINGS = [
   { beanId: 4, acidity: 6, sweetness: 7, body: 7, aftertaste: 6, balance: 9 },
 ]
 
+const SEED_INVENTORY = [
+  { beanId: 1, stock: 100, reservedStock: 0, price: 128.00, presalePrice: 108.00, deposit: 30.00, status: 'on_sale' },
+  { beanId: 2, stock: 80, reservedStock: 0, price: 98.00, presalePrice: 85.00, deposit: 25.00, status: 'on_sale' },
+  { beanId: 3, stock: 0, reservedStock: 0, price: 388.00, presalePrice: 328.00, deposit: 100.00, status: 'presale' },
+  { beanId: 4, stock: 50, reservedStock: 0, price: 118.00, presalePrice: 98.00, deposit: 30.00, status: 'on_sale' },
+]
+
+const now = new Date()
+const SEED_PROMOTIONS = [
+  {
+    name: '新客首单立减20',
+    type: 'new_customer',
+    discount: 20,
+    discountType: 'fixed',
+    minAmount: 100,
+    startTime: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+    endTime: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    status: 'active',
+  },
+  {
+    name: '满200减30',
+    type: 'full_reduction',
+    discount: 30,
+    discountType: 'fixed',
+    minAmount: 200,
+    startTime: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+    endTime: new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+    status: 'active',
+  },
+  {
+    name: '预售特惠9折',
+    type: 'presale',
+    discount: 10,
+    discountType: 'percentage',
+    minAmount: 0,
+    startTime: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+    endTime: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    status: 'active',
+  },
+]
+
 export async function seedDatabase() {
   const beanCount = await db.beans.count()
-  if (beanCount > 0) return
+  const inventoryCount = await db.inventory.count()
+  const promotionCount = await db.promotions.count()
 
-  await db.beans.bulkAdd(SEED_BEANS.map(b => ({ ...b, createdAt: new Date().toISOString() })))
-  await db.roasts.bulkAdd(SEED_ROASTS.map(r => ({ ...r, createdAt: new Date().toISOString() })))
-  await db.extractions.bulkAdd(SEED_EXTRACTIONS.map(e => ({ ...e, createdAt: new Date().toISOString() })))
-  await db.ratings.bulkAdd(SEED_RATINGS.map(r => ({ ...r, createdAt: new Date().toISOString() })))
+  const nowStr = new Date().toISOString()
+
+  if (beanCount === 0) {
+    await db.beans.bulkAdd(SEED_BEANS.map(b => ({ ...b, createdAt: nowStr })))
+    await db.roasts.bulkAdd(SEED_ROASTS.map(r => ({ ...r, createdAt: nowStr })))
+    await db.extractions.bulkAdd(SEED_EXTRACTIONS.map(e => ({ ...e, createdAt: nowStr })))
+    await db.ratings.bulkAdd(SEED_RATINGS.map(r => ({ ...r, createdAt: nowStr })))
+  }
+
+  if (inventoryCount === 0) {
+    await db.inventory.bulkAdd(SEED_INVENTORY.map(i => ({ ...i, updatedAt: nowStr })))
+  }
+
+  if (promotionCount === 0) {
+    await db.promotions.bulkAdd(SEED_PROMOTIONS.map(p => ({ ...p, createdAt: nowStr })))
+  }
 }

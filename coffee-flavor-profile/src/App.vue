@@ -1,8 +1,8 @@
 <template>
   <div id="coffee-app">
     <header class="app-header">
-      <h1>☕ 咖啡豆风味档案</h1>
-      <p class="subtitle">记录每一颗豆子的旅程 — 从产地到杯中</p>
+      <h1>☕ 咖啡豆风味档案 & 订单管理</h1>
+      <p class="subtitle">记录每一颗豆子的旅程 — 从产地到杯中，从预售到核销</p>
     </header>
 
     <div class="module-tabs">
@@ -21,6 +21,9 @@
       <RoastRecord v-if="activeTab === 'roast'" />
       <ExtractionLog v-if="activeTab === 'extraction'" />
       <RadarChart v-if="activeTab === 'rating'" />
+      <InventoryManagement v-if="activeTab === 'inventory'" />
+      <PromotionManagement v-if="activeTab === 'promotion'" />
+      <OrderManagement v-if="activeTab === 'order'" />
     </div>
   </div>
 </template>
@@ -31,9 +34,15 @@ import BeanRegistration from './components/BeanRegistration.vue'
 import RoastRecord from './components/RoastRecord.vue'
 import ExtractionLog from './components/ExtractionLog.vue'
 import RadarChart from './components/RadarChart.vue'
+import InventoryManagement from './components/InventoryManagement.vue'
+import PromotionManagement from './components/PromotionManagement.vue'
+import OrderManagement from './components/OrderManagement.vue'
 
-const activeTab = ref('bean')
+const activeTab = ref('order')
 const tabs = [
+  { key: 'order', icon: '🛒', label: '订单管理' },
+  { key: 'inventory', icon: '📦', label: '库存管理' },
+  { key: 'promotion', icon: '🎁', label: '营销活动' },
   { key: 'bean', icon: '🫘', label: '豆种登记' },
   { key: 'roast', icon: '🔥', label: '烘焙记录' },
   { key: 'extraction', icon: '☕', label: '萃取日志' },
