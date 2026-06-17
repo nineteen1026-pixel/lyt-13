@@ -72,9 +72,12 @@
           <div class="record-title">
             <span class="bean-link">{{ getBeanName(ext.beanId) }}</span>
             <span class="tag method-tag">{{ ext.method }}</span>
+            <span v-if="getRoastInfo(ext.roastId)" class="tag level-tag">
+              🔥 {{ getRoastInfo(ext.roastId).date }} · {{ getRoastInfo(ext.roastId).level }}
+            </span>
           </div>
           <div class="record-meta">
-            <span>{{ ext.date }}</span>
+            <span>萃取 {{ ext.date }}</span>
             <span v-if="ext.ratio">{{ ext.ratio }}</span>
             <span v-if="ext.temperature">{{ ext.temperature }}°C</span>
             <span v-if="ext.time">{{ ext.time }}</span>
@@ -113,6 +116,11 @@ const sortedExtractions = computed(() =>
 function getBeanName(beanId) {
   const bean = store.beans.find(b => b.id === beanId)
   return bean ? bean.name : '未知豆种'
+}
+
+function getRoastInfo(roastId) {
+  if (!roastId) return null
+  return store.roasts.find(r => r.id === roastId)
 }
 
 function onBeanChange() {
