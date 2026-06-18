@@ -28,6 +28,66 @@ const SEED_RATINGS = [
   { beanId: 4, acidity: 6, sweetness: 7, body: 7, aftertaste: 6, balance: 9 },
 ]
 
+const SEED_CURVES = [
+  {
+    name: '浅烘花果香曲线',
+    beanId: 1,
+    description: '适用于耶加雪菲等浅烘花果调豆种，保留明亮酸质与花果香气',
+    nodes: [
+      { time: 0, temperature: 90, event: '入豆' },
+      { time: 2, temperature: 120, event: '' },
+      { time: 4.5, temperature: 150, event: '转黄点' },
+      { time: 6, temperature: 165, event: '' },
+      { time: 7.5, temperature: 180, event: '一爆开始' },
+      { time: 9, temperature: 190, event: '一爆密集' },
+      { time: 9.5, temperature: 196, event: '出锅' },
+    ],
+  },
+  {
+    name: '深烘醇厚曲线',
+    beanId: 2,
+    description: '适用于曼特宁等深烘醇厚型豆种，发展浓厚body与巧克力调',
+    nodes: [
+      { time: 0, temperature: 95, event: '入豆' },
+      { time: 2.5, temperature: 125, event: '' },
+      { time: 5, temperature: 155, event: '转黄点' },
+      { time: 7, temperature: 175, event: '' },
+      { time: 9, temperature: 190, event: '一爆开始' },
+      { time: 11, temperature: 205, event: '一爆结束' },
+      { time: 12.5, temperature: 218, event: '二爆开始' },
+      { time: 14, temperature: 225, event: '出锅' },
+    ],
+  },
+  {
+    name: '极浅保留曲线',
+    beanId: 3,
+    description: '适用于瑰夏等精品豆种，极浅烘焙最大化保留产地风味',
+    nodes: [
+      { time: 0, temperature: 88, event: '入豆' },
+      { time: 1.5, temperature: 115, event: '' },
+      { time: 3.5, temperature: 145, event: '转黄点' },
+      { time: 5.5, temperature: 170, event: '' },
+      { time: 7, temperature: 180, event: '一爆开始' },
+      { time: 8, temperature: 188, event: '一爆密集' },
+      { time: 8.5, temperature: 193, event: '出锅' },
+    ],
+  },
+  {
+    name: '中烘平衡曲线',
+    beanId: null,
+    description: '通用中烘曲线，适合大多数水洗豆，追求酸甜平衡与圆润口感',
+    nodes: [
+      { time: 0, temperature: 92, event: '入豆' },
+      { time: 2, temperature: 122, event: '' },
+      { time: 4.5, temperature: 152, event: '转黄点' },
+      { time: 6.5, temperature: 172, event: '' },
+      { time: 8, temperature: 185, event: '一爆开始' },
+      { time: 9.5, temperature: 198, event: '一爆密集' },
+      { time: 11, temperature: 210, event: '出锅' },
+    ],
+  },
+]
+
 const SEED_INVENTORY = [
   { beanId: 1, stock: 100, reservedStock: 0, price: 128.00, presalePrice: 108.00, deposit: 30.00, status: 'on_sale' },
   { beanId: 2, stock: 80, reservedStock: 0, price: 98.00, presalePrice: 85.00, deposit: 25.00, status: 'on_sale' },
@@ -73,6 +133,7 @@ export async function seedDatabase() {
   const beanCount = await db.beans.count()
   const inventoryCount = await db.inventory.count()
   const promotionCount = await db.promotions.count()
+  const curveCount = await db.roastCurves.count()
 
   const nowStr = new Date().toISOString()
 
@@ -81,6 +142,10 @@ export async function seedDatabase() {
     await db.roasts.bulkAdd(SEED_ROASTS.map(r => ({ ...r, createdAt: nowStr })))
     await db.extractions.bulkAdd(SEED_EXTRACTIONS.map(e => ({ ...e, createdAt: nowStr })))
     await db.ratings.bulkAdd(SEED_RATINGS.map(r => ({ ...r, createdAt: nowStr })))
+  }
+
+  if (curveCount === 0) {
+    await db.roastCurves.bulkAdd(SEED_CURVES.map(c => ({ ...c, createdAt: nowStr })))
   }
 
   if (inventoryCount === 0) {

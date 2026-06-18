@@ -8,6 +8,7 @@ export const useCoffeeStore = defineStore('coffee', () => {
   const extractions = ref([])
   const ratings = ref([])
   const cuppingComparisons = ref([])
+  const roastCurves = ref([])
 
   const beansWithDetails = computed(() => {
     return beans.value.map(bean => {
@@ -30,6 +31,18 @@ export const useCoffeeStore = defineStore('coffee', () => {
               balance: +(beanRatings.reduce((s, r) => s + r.balance, 0) / beanRatings.length).toFixed(1),
             }
           : null,
+      }
+    })
+  })
+
+  const roastCurvesWithDetails = computed(() => {
+    return roastCurves.value.map(curve => {
+      const bean = beans.value.find(b => b.id === curve.beanId)
+      const curveRoasts = roasts.value.filter(r => r.curveId === curve.id)
+      return {
+        ...curve,
+        beanName: bean ? bean.name : (curve.beanId ? '未知豆种' : '通用曲线'),
+        roastCount: curveRoasts.length,
       }
     })
   })
@@ -73,6 +86,7 @@ export const useCoffeeStore = defineStore('coffee', () => {
     extractions.value = await db.extractions.toArray()
     ratings.value = await db.ratings.toArray()
     cuppingComparisons.value = await db.cuppingComparisons.toArray()
+    roastCurves.value = await db.roastCurves.toArray()
   }
 
   async function addBean(bean) {
@@ -169,14 +183,37 @@ export const useCoffeeStore = defineStore('coffee', () => {
     cuppingComparisons.value = cuppingComparisons.value.filter(c => c.id !== id)
   }
 
+  async function addRoastCurve(curve) {
+    const data = { ...curve, nodes: curve.nodes || [], createdAt: new Date().toISOString() }
+    const id = await db.roastCurves.add(data)
+    data.id = id
+    roastCurves.value.push(data)
+    return id
+  }
+
+  async function updateRoastCurve(id, updates) {
+    const data = { ...updates }
+    await db.roastCurves.update(id, data)
+    const idx = roastCurves.value.findIndex(c => c.id === id)
+    if (idx >= 0) {
+      roastCurves.value[idx] = { ...roastCurves.value[idx], ...data }
+    }
+  }
+
+  async function deleteRoastCurve(id) {
+    await db.roastCurves.delete(id)
+    roastCurves.value = roastCurves.value.filter(c => c.id !== id)
+  }
+
   return {
-    beans, roasts, extractions, ratings, cuppingComparisons,
-    beansWithDetails, cuppingComparisonsWithDetails,
+    beans, roasts, extractions, ratings, cuppingComparisons, roastCurves,
+    beansWithDetails, cuppingComparisonsWithDetails, roastCurvesWithDetails,
     loadAll,
     addBean, deleteBean,
     addRoast, deleteRoast,
     addExtraction, deleteExtraction,
     addRating, deleteRating,
     addCuppingComparison, updateCuppingComparison, deleteCuppingComparison,
+    addRoastCurve, updateRoastCurve, deleteRoastCurve,
   }
 })

@@ -18,6 +18,7 @@
 
     <div class="module-content">
       <BeanRegistration v-if="activeTab === 'bean'" />
+      <RoastCurve v-if="activeTab === 'curve'" />
       <RoastRecord v-if="activeTab === 'roast'" />
       <ExtractionLog v-if="activeTab === 'extraction'" />
       <RadarChart v-if="activeTab === 'rating'" />
@@ -34,6 +35,7 @@
 import { ref } from 'vue'
 import BeanRegistration from './components/BeanRegistration.vue'
 import RoastRecord from './components/RoastRecord.vue'
+import RoastCurve from './components/RoastCurve.vue'
 import ExtractionLog from './components/ExtractionLog.vue'
 import RadarChart from './components/RadarChart.vue'
 import CuppingComparison from './components/CuppingComparison.vue'
@@ -50,6 +52,7 @@ const tabs = [
   { key: 'promotion', icon: '🎁', label: '营销活动' },
   { key: 'cupping', icon: '🔍', label: '杯测对比' },
   { key: 'bean', icon: '🫘', label: '豆种登记' },
+  { key: 'curve', icon: '📈', label: '烘焙曲线' },
   { key: 'roast', icon: '🔥', label: '烘焙记录' },
   { key: 'extraction', icon: '☕', label: '萃取日志' },
   { key: 'rating', icon: '📊', label: '评分雷达' },
