@@ -104,8 +104,14 @@
 
 <script setup>
 import { ref, reactive, computed, watch } from 'vue'
-import { useCoffeeStore } from '../stores/coffee.js'
+import { use } from 'echarts/core'
+import { LineChart } from 'echarts/charts'
+import { TooltipComponent, GridComponent, MarkPointComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import VChart from 'vue-echarts'
+import { useCoffeeStore } from '../stores/coffee.js'
+
+use([LineChart, TooltipComponent, GridComponent, MarkPointComponent, CanvasRenderer])
 
 const store = useCoffeeStore()
 const showForm = ref(false)

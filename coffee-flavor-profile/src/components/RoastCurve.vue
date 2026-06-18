@@ -104,15 +104,15 @@
     <div v-if="showReview" class="review-overlay" @click.self="closeReview">
       <div class="review-modal">
         <div class="review-header">
-          <h3>{{ reviewCurve.name }} — 曲线复盘</h3>
-          <button class="btn btn-danger btn-sm" @click="closeReview">×</button>
+          <h3>{{ reviewCurveData.name }} — 曲线复盘</h3>
+          <button class="btn btn-danger btn-sm" @click.stop="closeReview">×</button>
         </div>
         <div class="review-body">
           <div class="review-meta">
-            <span class="tag" :class="reviewCurve.beanId ? 'bean-tag' : 'general-tag'">
-              {{ reviewCurve.beanName }}
+            <span class="tag" :class="reviewCurveData.beanId ? 'bean-tag' : 'general-tag'">
+              {{ reviewCurveData.beanName }}
             </span>
-            <span v-if="reviewCurve.description" class="review-desc">{{ reviewCurve.description }}</span>
+            <span v-if="reviewCurveData.description" class="review-desc">{{ reviewCurveData.description }}</span>
           </div>
           <v-chart :option="reviewOption" autoresize style="height: 340px; margin: 16px 0;" />
           <div class="review-nodes">
@@ -127,7 +127,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(node, idx) in reviewCurve.nodes" :key="idx">
+                <tr v-for="(node, idx) in reviewCurveData.nodes" :key="idx">
                   <td>{{ node.time }} min</td>
                   <td>{{ node.temperature }}°C</td>
                   <td>{{ getRate(idx) }}</td>
@@ -156,7 +156,7 @@
       <div class="review-modal">
         <div class="review-header">
           <h3>编辑曲线 — {{ editForm.name }}</h3>
-          <button class="btn btn-danger btn-sm" @click="closeEdit">×</button>
+          <button class="btn btn-danger btn-sm" @click.stop="closeEdit">×</button>
         </div>
         <div class="review-body">
           <div class="form-grid">
@@ -227,9 +227,15 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
-import { useCoffeeStore } from '../stores/coffee.js'
+import { ref, reactive, computed, nextTick } from 'vue'
+import { use } from 'echarts/core'
+import { LineChart } from 'echarts/charts'
+import { TitleComponent, TooltipComponent, GridComponent, MarkPointComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import VChart from 'vue-echarts'
+import { useCoffeeStore } from '../stores/coffee.js'
+
+use([LineChart, TitleComponent, TooltipComponent, GridComponent, MarkPointComponent, CanvasRenderer])
 
 const store = useCoffeeStore()
 const showForm = ref(false)
@@ -237,6 +243,7 @@ const showReview = ref(false)
 const showEditModal = ref(false)
 const editingId = ref(null)
 const reviewCurve = ref(null)
+const reviewCurveData = ref(null)
 
 const defaultForm = () => ({
   name: '',
@@ -258,8 +265,8 @@ const sortedCurves = computed(() =>
 )
 
 const reviewRoasts = computed(() => {
-  if (!reviewCurve.value) return []
-  return store.roasts.filter(r => r.curveId === reviewCurve.value.id)
+  if (!reviewCurveData.value) return []
+  return store.roasts.filter(r => r.curveId === reviewCurveData.value.id)
 })
 
 function buildChartOption(nodes, title) {
@@ -328,8 +335,8 @@ function buildChartOption(nodes, title) {
 const previewOption = computed(() => buildChartOption(form.nodes, '曲线预览'))
 const editPreviewOption = computed(() => buildChartOption(editForm.nodes, '编辑预览'))
 const reviewOption = computed(() => {
-  if (!reviewCurve.value?.nodes) return {}
-  return buildChartOption(reviewCurve.value.nodes, reviewCurve.value.name)
+  if (!reviewCurveData.value?.nodes) return {}
+  return buildChartOption(reviewCurveData.value.nodes, reviewCurveData.value.name)
 })
 
 function addNode() {
@@ -365,18 +372,22 @@ async function submitCurve() {
 
 function openReview(curve) {
   reviewCurve.value = curve
+  reviewCurveData.value = { ...curve }
   showReview.value = true
 }
 
 function closeReview() {
   showReview.value = false
-  reviewCurve.value = null
+  nextTick(() => {
+    reviewCurve.value = null
+    reviewCurveData.value = null
+  })
 }
 
 function getRate(idx) {
-  if (!reviewCurve.value?.nodes || idx === 0) return '—'
-  const prev = reviewCurve.value.nodes[idx - 1]
-  const curr = reviewCurve.value.nodes[idx]
+  if (!reviewCurveData.value?.nodes || idx === 0) return '—'
+  const prev = reviewCurveData.value.nodes[idx - 1]
+  const curr = reviewCurveData.value.nodes[idx]
   const dt = curr.time - prev.time
   if (dt <= 0) return '—'
   const rate = ((curr.temperature - prev.temperature) / dt).toFixed(1)
@@ -394,7 +405,9 @@ function openEdit(curve) {
 
 function closeEdit() {
   showEditModal.value = false
-  editingId.value = null
+  nextTick(() => {
+    editingId.value = null
+  })
 }
 
 async function submitEdit() {
