@@ -2,7 +2,7 @@ import Dexie from 'dexie'
 
 const db = new Dexie('CoffeeFlavorProfile')
 
-db.version(5).stores({
+db.version(6).stores({
   beans: '++id, name, origin, variety, process, flavorTags, createdAt',
   roasts: '++id, beanId, curveId, date, level, temperature, duration, notes, createdAt',
   extractions: '++id, roastId, beanId, date, method, ratio, temperature, time, notes, createdAt',
@@ -16,6 +16,8 @@ db.version(5).stores({
   payments: '++id, orderId, type, amount, method, transactionNo, paidAt, remark, createdAt',
   paymentReminders: '++id, orderId, type, content, sentAt, createdAt',
   promotionRedemptions: '++id, orderId, promotionId, discountAmount, redeemedAt, createdAt',
+  extractionParams: '++id, beanType, beanVariety, origin, process, roastLevel, ratio, temperature, brewTime, overallScore, sampleCount, createdAt, updatedAt',
+  recommendationFeedbacks: '++id, paramRecordId, beanVariety, roastLevel, satisfaction, actualUsed, createdAt',
 })
 
 export default db

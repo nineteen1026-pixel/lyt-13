@@ -1,4 +1,5 @@
 import db from './db.js'
+import { generateAllSeedRecords } from './utils/recommendationAlgo.js'
 
 const SEED_BEANS = [
   { name: '耶加雪菲·科契尔', origin: '埃塞俄比亚', variety: 'Heirloom', process: '水洗', flavorTags: ['花香', '茉莉', '柑橘', '柠檬', '茶感'] },
@@ -134,6 +135,7 @@ export async function seedDatabase() {
   const inventoryCount = await db.inventory.count()
   const promotionCount = await db.promotions.count()
   const curveCount = await db.roastCurves.count()
+  const paramCount = await db.extractionParams.count()
 
   const nowStr = new Date().toISOString()
 
@@ -154,5 +156,10 @@ export async function seedDatabase() {
 
   if (promotionCount === 0) {
     await db.promotions.bulkAdd(SEED_PROMOTIONS.map(p => ({ ...p, createdAt: nowStr })))
+  }
+
+  if (paramCount === 0) {
+    const seedRecords = generateAllSeedRecords()
+    await db.extractionParams.bulkAdd(seedRecords.map(r => ({ ...r, createdAt: nowStr, updatedAt: nowStr })))
   }
 }
