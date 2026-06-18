@@ -88,6 +88,21 @@
                   <span v-if="rec.matchReasons.ratingMatch" class="reason-tag">📊 风味维度匹配</span>
                   <span v-if="rec.matchReasons.tagMatch" class="reason-tag">🏷️ 风味标签匹配</span>
                 </div>
+                <div v-if="rec.highlights.roast || rec.highlights.extraction" class="brew-highlights">
+                  <div v-if="rec.highlights.roast" class="highlight-item">
+                    <span class="highlight-icon">🔥</span>
+                    <span class="highlight-label">烘焙:</span>
+                    <span class="highlight-value level-tag">{{ rec.highlights.roast.level }}</span>
+                  </div>
+                  <div v-if="rec.highlights.extraction" class="highlight-item">
+                    <span class="highlight-icon">☕</span>
+                    <span class="highlight-label">冲煮:</span>
+                    <span class="highlight-value method-tag">{{ rec.highlights.extraction.method }}</span>
+                    <span class="highlight-params">
+                      {{ rec.highlights.extraction.ratio }} · {{ rec.highlights.extraction.temperature }}°C · {{ rec.highlights.extraction.time }}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -140,6 +155,21 @@
               <div v-if="rec.bean.flavorTags?.length" class="bean-flavor-tags">
                 <span v-for="tag in rec.bean.flavorTags" :key="tag" class="flavor-tag">{{ tag }}</span>
               </div>
+              <div v-if="rec.highlights.roast || rec.highlights.extraction" class="brew-highlights">
+                <div v-if="rec.highlights.roast" class="highlight-item">
+                  <span class="highlight-icon">🔥</span>
+                  <span class="highlight-label">烘焙:</span>
+                  <span class="highlight-value level-tag">{{ rec.highlights.roast.level }}</span>
+                </div>
+                <div v-if="rec.highlights.extraction" class="highlight-item">
+                  <span class="highlight-icon">☕</span>
+                  <span class="highlight-label">冲煮:</span>
+                  <span class="highlight-value method-tag">{{ rec.highlights.extraction.method }}</span>
+                  <span class="highlight-params">
+                    {{ rec.highlights.extraction.ratio }} · {{ rec.highlights.extraction.temperature }}°C · {{ rec.highlights.extraction.time }}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -177,6 +207,7 @@
               <div class="recommend-main">
                 <div class="recommend-title">
                   <span class="level-tag large">{{ rec.level }}</span>
+                  <span v-if="idx === 0" class="top-pick-badge">✨ 首推</span>
                   <span class="confidence-badge">{{ rec.confidence }}% 置信度</span>
                 </div>
                 <div class="recommend-reason">{{ rec.reason }}</div>
@@ -214,6 +245,7 @@
               <div class="recommend-main">
                 <div class="recommend-title">
                   <span class="method-tag large">{{ rec.method }}</span>
+                  <span v-if="idx === 0" class="top-pick-badge">✨ 首推</span>
                   <span class="confidence-badge">{{ rec.confidence }}% 置信度</span>
                 </div>
                 <div class="extraction-params">
@@ -261,7 +293,11 @@ const preferredTags = computed(() => recStore.getUserPreferredFlavorTags())
 
 const personalRecommendations = computed(() => {
   if (!recStore.hasUserPreferences) return []
-  return recStore.recommendByUserPreference(5)
+  const recs = recStore.recommendByUserPreference(5)
+  return recs.map(rec => ({
+    ...rec,
+    highlights: recStore.getBeanRecommendHighlights(rec.bean.id),
+  }))
 })
 
 const selectedBean = computed(() => {
@@ -271,7 +307,11 @@ const selectedBean = computed(() => {
 
 const similarRecommendations = computed(() => {
   if (!selectedBeanId.value) return []
-  return recStore.recommendBySimilarBean(Number(selectedBeanId.value), 5)
+  const recs = recStore.recommendBySimilarBean(Number(selectedBeanId.value), 5)
+  return recs.map(rec => ({
+    ...rec,
+    highlights: recStore.getBeanRecommendHighlights(rec.bean.id),
+  }))
 })
 
 const roastRecommendations = computed(() => {
@@ -287,12 +327,11 @@ const extractionRecommendations = computed(() => {
   )
 })
 
-watch(detailBean, () => {
-  selectedRoastForExtraction.value = ''
-})
-
 function selectBean(bean) {
   detailBean.value = bean
+  const roastRecs = recStore.recommendRoastLevel(bean.id)
+  selectedRoastForExtraction.value = roastRecs[0]?.level || ''
+  detailTab.value = 'roast'
 }
 </script>
 
@@ -678,6 +717,14 @@ function selectBean(bean) {
   font-size: 12px;
   font-weight: 600;
 }
+.top-pick-badge {
+  padding: 3px 10px;
+  background: linear-gradient(135deg, #FFD700, #FFA500);
+  color: #5A3E00;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
 .recommend-reason {
   font-size: 13px;
   color: #6F4E37;
@@ -710,5 +757,44 @@ function selectBean(bean) {
   font-size: 15px;
   font-weight: 600;
   color: #3E2C1C;
+}
+.brew-highlights {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #E8D5B7;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.highlight-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.highlight-icon {
+  font-size: 13px;
+}
+.highlight-label {
+  color: #8B7355;
+  font-weight: 500;
+}
+.highlight-value {
+  padding: 2px 10px;
+  font-size: 11px;
+}
+.highlight-value.level-tag {
+  background: #FFE8CC;
+  color: #A0522D;
+}
+.highlight-value.method-tag {
+  background: #D4E6D4;
+  color: #2E5A2E;
+}
+.highlight-params {
+  color: #6F4E37;
+  font-weight: 500;
+  margin-left: 4px;
 }
 </style>

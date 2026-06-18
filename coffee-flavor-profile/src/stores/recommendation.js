@@ -172,15 +172,24 @@ export const useRecommendationStore = defineStore('recommendation', () => {
       .slice(0, topN)
   }
 
-  function recommendByUserPreference(topN = 5) {
+  function getRatedBeanIds() {
+    const ratedIds = new Set()
+    coffeeStore.ratings.forEach(r => ratedIds.add(r.beanId))
+    return ratedIds
+  }
+
+  function recommendByUserPreference(topN = 5, excludeRated = true) {
     const userVector = getUserPreferenceVector()
     const preferredTags = getUserPreferredFlavorTags()
 
     if (!userVector && preferredTags.length === 0) return []
 
     const results = []
+    const ratedIds = excludeRated ? getRatedBeanIds() : new Set()
 
     coffeeStore.beans.forEach(bean => {
+      if (excludeRated && ratedIds.has(bean.id)) return
+
       let score = 0
       let hasRatingScore = false
       let hasTagScore = false
@@ -213,6 +222,29 @@ export const useRecommendationStore = defineStore('recommendation', () => {
     return results
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, topN)
+  }
+
+  function getBeanRecommendHighlights(beanId) {
+    const roastRecs = recommendRoastLevel(beanId)
+    const topRoast = roastRecs[0]
+    const extractionRecs = recommendExtractionParams(beanId, topRoast?.level)
+    const topExtraction = extractionRecs[0]
+
+    return {
+      roast: topRoast ? {
+        level: topRoast.level,
+        reason: topRoast.reason,
+        confidence: topRoast.confidence,
+      } : null,
+      extraction: topExtraction ? {
+        method: topExtraction.method,
+        ratio: topExtraction.ratio,
+        temperature: topExtraction.temperature,
+        time: topExtraction.time,
+        reason: topExtraction.reason,
+        confidence: topExtraction.confidence,
+      } : null,
+    }
   }
 
   function recommendRoastLevel(beanId) {
@@ -436,10 +468,12 @@ export const useRecommendationStore = defineStore('recommendation', () => {
     calculateBeanSimilarity,
     getUserPreferenceVector,
     getUserPreferredFlavorTags,
+    getRatedBeanIds,
     recommendBySimilarBean,
     recommendByUserPreference,
     recommendRoastLevel,
     recommendExtractionParams,
+    getBeanRecommendHighlights,
     hasUserPreferences,
     hasEnoughData,
   }
