@@ -166,9 +166,9 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(bean, idx) in sortedBeansByScore" :key="bean.id">
+              <tr v-for="bean in sortedBeansByScore" :key="bean.id">
                 <td>
-                  <span class="td-color" :style="{ background: BEAN_COLORS[idx % BEAN_COLORS.length] }"></span>
+                  <span class="td-color" :style="{ background: BEAN_COLORS[getBeanColorIdx(bean) % BEAN_COLORS.length] }"></span>
                   {{ bean.name }}
                 </td>
                 <td v-for="key in DIM_KEYS" :key="key" :class="{ 'score-highlight': isMaxInDimension(key, bean) }">
@@ -416,6 +416,12 @@ function isMaxInDimension(key, bean) {
   if (beans.length < 2) return false
   const maxVal = Math.max(...beans.map(b => b.avgRating[key]))
   return bean.avgRating[key] === maxVal
+}
+
+function getBeanColorIdx(bean) {
+  if (!activeComparison.value) return 0
+  const idx = activeComparison.value.beans.findIndex(b => b.id === bean.id)
+  return idx >= 0 ? idx : 0
 }
 
 function getBeanName(id) {
