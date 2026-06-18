@@ -2,11 +2,12 @@ import Dexie from 'dexie'
 
 const db = new Dexie('CoffeeFlavorProfile')
 
-db.version(3).stores({
+db.version(4).stores({
   beans: '++id, name, origin, variety, process, flavorTags, createdAt',
   roasts: '++id, beanId, date, level, temperature, duration, notes, createdAt',
   extractions: '++id, roastId, beanId, date, method, ratio, temperature, time, notes, createdAt',
   ratings: '++id, beanId, acidity, sweetness, body, aftertaste, balance, createdAt',
+  cuppingComparisons: '++id, name, beanIds, roastIds, extractionIds, notes, createdAt, updatedAt',
   inventory: '++id, beanId, stock, reservedStock, price, presalePrice, deposit, status, updatedAt',
   promotions: '++id, name, type, discount, discountType, minAmount, startTime, endTime, status, createdAt',
   orders: '++id, orderNo, type, status, customerName, customerPhone, totalAmount, depositAmount, balanceAmount, discountAmount, payAmount, promotionId, depositPaidAt, balancePaidAt, balanceDueAt, depositDueAt, canceledAt, cancelReason, createdAt, updatedAt',

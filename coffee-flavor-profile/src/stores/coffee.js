@@ -7,6 +7,7 @@ export const useCoffeeStore = defineStore('coffee', () => {
   const roasts = ref([])
   const extractions = ref([])
   const ratings = ref([])
+  const cuppingComparisons = ref([])
 
   const beansWithDetails = computed(() => {
     return beans.value.map(bean => {
@@ -33,11 +34,45 @@ export const useCoffeeStore = defineStore('coffee', () => {
     })
   })
 
+  const cuppingComparisonsWithDetails = computed(() => {
+    return cuppingComparisons.value.map(cmp => {
+      const cmpBeans = beans.value.filter(b => cmp.beanIds?.includes(b.id))
+      const cmpRoasts = roasts.value.filter(r => cmp.roastIds?.includes(r.id))
+      const cmpExtractions = extractions.value.filter(e => cmp.extractionIds?.includes(e.id))
+      const beanDetails = cmpBeans.map(bean => {
+        const beanRoasts = cmpRoasts.filter(r => r.beanId === bean.id)
+        const beanExtractions = cmpExtractions.filter(e => e.beanId === bean.id)
+        const beanRatings = ratings.value.filter(r => r.beanId === bean.id)
+        return {
+          ...bean,
+          roasts: beanRoasts,
+          extractions: beanExtractions,
+          avgRating: beanRatings.length > 0
+            ? {
+                acidity: +(beanRatings.reduce((s, r) => s + r.acidity, 0) / beanRatings.length).toFixed(1),
+                sweetness: +(beanRatings.reduce((s, r) => s + r.sweetness, 0) / beanRatings.length).toFixed(1),
+                body: +(beanRatings.reduce((s, r) => s + r.body, 0) / beanRatings.length).toFixed(1),
+                aftertaste: +(beanRatings.reduce((s, r) => s + r.aftertaste, 0) / beanRatings.length).toFixed(1),
+                balance: +(beanRatings.reduce((s, r) => s + r.balance, 0) / beanRatings.length).toFixed(1),
+              }
+            : null,
+        }
+      })
+      return {
+        ...cmp,
+        beans: beanDetails,
+        roasts: cmpRoasts,
+        extractions: cmpExtractions,
+      }
+    })
+  })
+
   async function loadAll() {
     beans.value = await db.beans.toArray()
     roasts.value = await db.roasts.toArray()
     extractions.value = await db.extractions.toArray()
     ratings.value = await db.ratings.toArray()
+    cuppingComparisons.value = await db.cuppingComparisons.toArray()
   }
 
   async function addBean(bean) {
@@ -103,12 +138,45 @@ export const useCoffeeStore = defineStore('coffee', () => {
     ratings.value = ratings.value.filter(r => r.id !== id)
   }
 
+  async function addCuppingComparison(cmp) {
+    const now = new Date().toISOString()
+    const data = {
+      ...cmp,
+      beanIds: cmp.beanIds || [],
+      roastIds: cmp.roastIds || [],
+      extractionIds: cmp.extractionIds || [],
+      notes: cmp.notes || '',
+      createdAt: now,
+      updatedAt: now,
+    }
+    const id = await db.cuppingComparisons.add(data)
+    data.id = id
+    cuppingComparisons.value.push(data)
+    return id
+  }
+
+  async function updateCuppingComparison(id, updates) {
+    const data = { ...updates, updatedAt: new Date().toISOString() }
+    await db.cuppingComparisons.update(id, data)
+    const idx = cuppingComparisons.value.findIndex(c => c.id === id)
+    if (idx >= 0) {
+      cuppingComparisons.value[idx] = { ...cuppingComparisons.value[idx], ...data }
+    }
+  }
+
+  async function deleteCuppingComparison(id) {
+    await db.cuppingComparisons.delete(id)
+    cuppingComparisons.value = cuppingComparisons.value.filter(c => c.id !== id)
+  }
+
   return {
-    beans, roasts, extractions, ratings, beansWithDetails,
+    beans, roasts, extractions, ratings, cuppingComparisons,
+    beansWithDetails, cuppingComparisonsWithDetails,
     loadAll,
     addBean, deleteBean,
     addRoast, deleteRoast,
     addExtraction, deleteExtraction,
     addRating, deleteRating,
+    addCuppingComparison, updateCuppingComparison, deleteCuppingComparison,
   }
 })
