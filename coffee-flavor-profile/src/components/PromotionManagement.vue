@@ -50,6 +50,15 @@
           <label>结束时间</label>
           <input type="datetime-local" v-model="form.endTime" />
         </div>
+        <div class="form-group">
+          <label>绑定优惠券模板</label>
+          <select v-model="form.couponTemplateId">
+            <option :value="null">不绑定</option>
+            <option v-for="tpl in couponStore.activeTemplates" :key="tpl.id" :value="tpl.id">
+              {{ tpl.name }} ({{ tpl.discountType === 'fixed' ? '¥' + tpl.discount : tpl.discount + '%' }})
+            </option>
+          </select>
+        </div>
       </div>
       <button class="btn btn-primary" @click="submitPromotion" :disabled="!canSubmit">
         创建活动
@@ -87,6 +96,14 @@
           <div class="promo-actions">
             <button
               class="btn btn-sm"
+              @click="openBatchIssue(promo)"
+              :disabled="!promo.couponTemplateId"
+              :title="promo.couponTemplateId ? '批量发券' : '请先绑定优惠券模板'"
+            >
+              🎫 批量发券
+            </button>
+            <button
+              class="btn btn-sm"
               @click="toggleStatus(promo)"
               :class="promo.status === 'active' ? 'btn-danger' : ''"
             >
@@ -111,6 +128,12 @@
             <span class="promo-label">有效期:</span>
             <span class="promo-value">
               {{ formatDate(promo.startTime) }} ~ {{ formatDate(promo.endTime) }}
+            </span>
+          </div>
+          <div v-if="promo.couponTemplateId" class="promo-row">
+            <span class="promo-label">绑定券模板:</span>
+            <span class="promo-value highlight">
+              {{ getTemplateName(promo.couponTemplateId) }}
             </span>
           </div>
           <div class="promo-row" v-if="getRedemptionCount(promo.id) > 0">
@@ -138,18 +161,97 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showBatchIssue" class="modal-overlay" @click.self="showBatchIssue = false">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>活动批量发券</h3>
+          <button class="close-btn" @click="showBatchIssue = false">×</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="currentPromotion" class="promo-issue-info">
+            <div class="info-row">
+              <span class="info-label">活动名称:</span>
+              <span class="info-value">{{ currentPromotion.name }}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">券模板:</span>
+              <span class="info-value highlight">{{ getTemplateName(currentPromotion.couponTemplateId) }}</span>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>发放方式</label>
+            <select v-model="issueMethod">
+              <option value="manual">手动输入</option>
+              <option value="batch">批量导入</option>
+            </select>
+          </div>
+
+          <div v-if="issueMethod === 'manual'" class="form-group">
+            <label>会员手机号</label>
+            <input v-model="issuePhone" placeholder="请输入会员手机号" />
+          </div>
+
+          <div v-if="issueMethod === 'manual'" class="form-group">
+            <label>会员姓名（可选）</label>
+            <input v-model="issueName" placeholder="请输入会员姓名" />
+          </div>
+
+          <div v-if="issueMethod === 'batch'" class="form-group">
+            <label>批量导入（每行一个，格式：手机号,姓名）</label>
+            <textarea
+              v-model="batchText"
+              rows="8"
+              placeholder="示例：&#10;13800138000,张三&#10;13900139000,李四&#10;13700137000"
+            ></textarea>
+          </div>
+
+          <div v-if="issueResults.length > 0" class="issue-results">
+            <h4>发放结果</h4>
+            <div class="result-stats">
+              <span class="success">成功: {{ successCount }}</span>
+              <span class="fail">失败: {{ failCount }}</span>
+            </div>
+            <div class="result-list">
+              <div v-for="(r, i) in issueResults" :key="i" class="result-item" :class="{ fail: !r.success }">
+                <span>{{ r.phone }}</span>
+                <span v-if="r.success" class="success-text">✓ {{ r.coupon?.code }}</span>
+                <span v-else class="fail-text">✗ {{ r.error }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" @click="showBatchIssue = false">取消</button>
+          <button class="btn btn-primary" @click="handleIssue" :disabled="!canIssue">
+            {{ issueMethod === 'manual' ? '发放' : '批量发放' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { usePromotionStore } from '../stores/promotion.js'
+import { useCouponStore } from '../stores/coupon.js'
 
 const emit = defineEmits(['navigate'])
 
 const promoStore = usePromotionStore()
+const couponStore = useCouponStore()
 
 const showCreateForm = ref(false)
+const showBatchIssue = ref(false)
+const currentPromotion = ref(null)
+const issueMethod = ref('manual')
+const issuePhone = ref('')
+const issueName = ref('')
+const batchText = ref('')
+const issueResults = ref([])
+
 const now = new Date()
 const form = reactive({
   name: '',
@@ -160,6 +262,7 @@ const form = reactive({
   startTime: formatLocal(new Date(now.getTime())),
   endTime: formatLocal(new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)),
   status: 'active',
+  couponTemplateId: null,
 })
 
 function formatLocal(d) {
@@ -220,6 +323,22 @@ function getPromoName(promoId) {
   return promo?.name || '未知活动'
 }
 
+function getTemplateName(templateId) {
+  const tpl = couponStore.getTemplateById(templateId)
+  return tpl?.name || '未知券模板'
+}
+
+const canIssue = computed(() => {
+  if (issueMethod.value === 'manual') {
+    return issuePhone.value.trim().length >= 11
+  } else {
+    return batchText.value.trim().length > 0
+  }
+})
+
+const successCount = computed(() => issueResults.value.filter(r => r.success).length)
+const failCount = computed(() => issueResults.value.filter(r => !r.success).length)
+
 function resetForm() {
   form.name = ''
   form.type = 'full_reduction'
@@ -228,6 +347,7 @@ function resetForm() {
   form.minAmount = 0
   form.startTime = formatLocal(new Date())
   form.endTime = formatLocal(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000))
+  form.couponTemplateId = null
 }
 
 async function submitPromotion() {
@@ -242,6 +362,7 @@ async function submitPromotion() {
       startTime: new Date(form.startTime).toISOString(),
       endTime: new Date(form.endTime).toISOString(),
       status: 'active',
+      couponTemplateId: form.couponTemplateId,
     })
     alert('活动创建成功！')
     resetForm()
@@ -264,6 +385,55 @@ async function handleDelete(id) {
 function goToCouponCenter() {
   emit('navigate', 'coupon')
 }
+
+function openBatchIssue(promo) {
+  currentPromotion.value = promo
+  issueMethod.value = 'manual'
+  issuePhone.value = ''
+  issueName.value = ''
+  batchText.value = ''
+  issueResults.value = []
+  showBatchIssue.value = true
+}
+
+async function handleIssue() {
+  if (!currentPromotion.value || !currentPromotion.value.couponTemplateId) return
+
+  try {
+    if (issueMethod.value === 'manual') {
+      const coupon = await couponStore.issueCoupon(
+        currentPromotion.value.couponTemplateId,
+        issuePhone.value.trim(),
+        issueName.value.trim()
+      )
+      issueResults.value = [{ success: true, phone: issuePhone.value.trim(), coupon }]
+      issuePhone.value = ''
+      issueName.value = ''
+    } else {
+      const lines = batchText.value.trim().split('\n').filter(l => l.trim())
+      const members = lines.map(line => {
+        const parts = line.split(/[,，]/)
+        return {
+          phone: parts[0].trim(),
+          name: parts[1]?.trim() || '',
+        }
+      }).filter(m => m.phone)
+
+      const results = await couponStore.batchIssueCoupons(
+        currentPromotion.value.couponTemplateId,
+        members
+      )
+      issueResults.value = results
+      batchText.value = ''
+    }
+  } catch (e) {
+    alert('发放失败: ' + e.message)
+  }
+}
+
+onMounted(async () => {
+  await couponStore.loadAll()
+})
 </script>
 
 <style scoped>
@@ -472,5 +642,192 @@ function goToCouponCenter() {
 .redeem-time {
   color: #8B7355;
   font-size: 12px;
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: #FFFDF9;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 500px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #EDE0D0;
+}
+
+.modal-header h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #3E2C1C;
+  margin: 0;
+}
+
+.close-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  font-size: 24px;
+  color: #8B7355;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.close-btn:hover {
+  color: #3E2C1C;
+}
+
+.modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.promo-issue-info {
+  padding: 12px 16px;
+  background: #FFF8F0;
+  border-radius: 8px;
+  border: 1px solid #EDE0D0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+}
+
+.info-label {
+  color: #8B7355;
+}
+
+.info-value {
+  color: #3E2C1C;
+  font-weight: 500;
+}
+
+.info-value.highlight {
+  color: #C0392B;
+  font-weight: 600;
+}
+
+textarea {
+  padding: 8px 12px;
+  border: 1px solid #D2B48C;
+  border-radius: 8px;
+  font-size: 13px;
+  background: #FFFCF7;
+  color: #3E2C1C;
+  outline: none;
+  resize: vertical;
+  font-family: monospace;
+}
+
+textarea:focus {
+  border-color: #6F4E37;
+}
+
+.issue-results {
+  border-top: 1px solid #EDE0D0;
+  padding-top: 16px;
+}
+
+.issue-results h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #3E2C1C;
+  margin-bottom: 10px;
+}
+
+.result-stats {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.result-stats .success {
+  color: #065F46;
+  font-weight: 500;
+}
+
+.result-stats .fail {
+  color: #C0392B;
+  font-weight: 500;
+}
+
+.result-list {
+  max-height: 150px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.result-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: #F0FDF4;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.result-item.fail {
+  background: #FEF2F2;
+}
+
+.success-text {
+  color: #065F46;
+}
+
+.fail-text {
+  color: #C0392B;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid #EDE0D0;
+}
+
+.btn-sm {
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

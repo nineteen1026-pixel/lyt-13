@@ -315,7 +315,15 @@ export const useOrderStore = defineStore('order', () => {
       }
 
       if (finalCouponId && couponDiscount > 0) {
-        await couponStore.useCoupon(finalCouponId, orderId, couponDiscount)
+        await couponStore.useCoupon(
+          finalCouponId,
+          orderId,
+          couponDiscount,
+          customerPhone,
+          isNewCustomer,
+          type,
+          beanIds
+        )
       }
 
       orders.value.push(orderData)

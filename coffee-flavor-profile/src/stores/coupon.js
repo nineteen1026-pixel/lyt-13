@@ -98,7 +98,7 @@ export const useCouponStore = defineStore('coupon', () => {
     templates.value = templates.value.filter(t => t.id !== id)
   }
 
-  function calculateDiscount(template, orderAmount, orderType = 'normal', beanIds = []) {
+  function calculateDiscount(template, orderAmount, orderType = 'normal', beanIds = [], isNewCustomer = false, memberPhone = '') {
     if (!template) return 0
     if (template.status !== TEMPLATE_STATUS.ACTIVE) return 0
 
@@ -112,6 +112,16 @@ export const useCouponStore = defineStore('coupon', () => {
       if (!hasAllowedBean) return 0
     }
 
+    if (template.type === COUPON_TYPE.NEW_CUSTOMER && !isNewCustomer) return 0
+
+    if (template.type === COUPON_TYPE.BIRTHDAY && memberPhone) {
+      const memberCoupons = coupons.value.filter(c => c.memberPhone === memberPhone)
+      const hasUsedBirthday = memberCoupons.some(c =>
+        c.templateId === template.id && c.status === COUPON_STATUS.USED
+      )
+      if (hasUsedBirthday) return 0
+    }
+
     if (template.discountType === 'fixed') {
       return Math.min(template.discount, orderAmount)
     } else if (template.discountType === 'percentage') {
@@ -120,7 +130,7 @@ export const useCouponStore = defineStore('coupon', () => {
     return 0
   }
 
-  function getApplicableCoupons(memberPhone, orderAmount, orderType = 'normal', beanIds = []) {
+  function getApplicableCoupons(memberPhone, orderAmount, orderType = 'normal', beanIds = [], isNewCustomer = false) {
     const applicable = []
     const memberCoupons = coupons.value.filter(c =>
       c.memberPhone === memberPhone && c.status === COUPON_STATUS.UNUSED
@@ -133,8 +143,9 @@ export const useCouponStore = defineStore('coupon', () => {
 
       const template = templates.value.find(t => t.id === coupon.templateId)
       if (!template) continue
+      if (template.status !== TEMPLATE_STATUS.ACTIVE) continue
 
-      const discount = calculateDiscount(template, orderAmount, orderType, beanIds)
+      const discount = calculateDiscount(template, orderAmount, orderType, beanIds, isNewCustomer, memberPhone)
       if (discount > 0) {
         applicable.push({
           ...coupon,
@@ -222,15 +233,32 @@ export const useCouponStore = defineStore('coupon', () => {
     return results
   }
 
-  async function useCoupon(couponId, orderId, discountAmount) {
+  async function useCoupon(couponId, orderId, discountAmount, customerPhone = '', isNewCustomer = false, orderType = 'normal', beanIds = []) {
     const coupon = coupons.value.find(c => c.id === couponId)
     if (!coupon) throw new Error('优惠券不存在')
     if (coupon.status !== COUPON_STATUS.UNUSED) throw new Error('优惠券状态不可用')
 
-    const now = new Date().toISOString()
+    const now = new Date()
+    if (new Date(coupon.validStart) > now) throw new Error('优惠券尚未生效')
+    if (new Date(coupon.validEnd) < now) throw new Error('优惠券已过期')
+
+    if (customerPhone && coupon.memberPhone !== customerPhone) {
+      throw new Error('优惠券不属于当前会员')
+    }
+
+    const template = templates.value.find(t => t.id === coupon.templateId)
+    if (!template) throw new Error('优惠券模板不存在')
+    if (template.status !== TEMPLATE_STATUS.ACTIVE) throw new Error('优惠券模板已停用')
+
+    const actualDiscount = calculateDiscount(template, 0, orderType, beanIds, isNewCustomer, customerPhone)
+    if (actualDiscount <= 0) {
+      throw new Error('优惠券不满足使用条件')
+    }
+
+    const nowStr = now.toISOString()
     await db.coupons.update(couponId, {
       status: COUPON_STATUS.USED,
-      usedAt: now,
+      usedAt: nowStr,
       orderId,
       discountAmount,
     })
@@ -238,7 +266,7 @@ export const useCouponStore = defineStore('coupon', () => {
     const idx = coupons.value.findIndex(c => c.id === couponId)
     if (idx !== -1) {
       coupons.value[idx].status = COUPON_STATUS.USED
-      coupons.value[idx].usedAt = now
+      coupons.value[idx].usedAt = nowStr
       coupons.value[idx].orderId = orderId
       coupons.value[idx].discountAmount = discountAmount
     }

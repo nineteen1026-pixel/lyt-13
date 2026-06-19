@@ -380,7 +380,14 @@ const calculateTotals = computed(() => {
     const coupon = couponStore.getCouponById(form.selectedCouponId)
     const template = couponStore.getTemplateById(coupon?.templateId)
     if (coupon && template && coupon.memberPhone === form.customerPhone.trim()) {
-      couponDiscount = couponStore.calculateDiscount(template, totalAmount, form.type, beanIds)
+      couponDiscount = couponStore.calculateDiscount(
+        template,
+        totalAmount,
+        form.type,
+        beanIds,
+        form.isNewCustomer,
+        form.customerPhone.trim()
+      )
     }
   }
 
@@ -419,7 +426,8 @@ const applicableCoupons = computed(() => {
     form.customerPhone.trim(),
     calculateTotals.value.totalAmount,
     form.type,
-    beanIds
+    beanIds,
+    form.isNewCustomer
   )
 })
 
@@ -588,7 +596,8 @@ function getCountdown(dueAtStr) {
   return `(剩 ${secs}s)`
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await couponStore.loadAll()
   countdownTimer = setInterval(() => {
     orderStore.checkTimeouts()
   }, 1000)
