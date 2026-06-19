@@ -28,7 +28,7 @@
       <InventoryManagement v-if="activeTab === 'inventory'" />
       <PromotionManagement v-if="activeTab === 'promotion'" />
       <OrderManagement v-if="activeTab === 'order'" />
-      <BeanTraceability v-if="activeTab === 'traceability'" :initialBeanId="traceabilityBeanId" />
+      <BeanTraceability v-if="activeTab === 'traceability'" :initialBeanId="traceabilityBeanId" :viewData="traceabilityViewData" />
     </div>
   </div>
 </template>
@@ -47,16 +47,30 @@ import InventoryManagement from './components/InventoryManagement.vue'
 import PromotionManagement from './components/PromotionManagement.vue'
 import OrderManagement from './components/OrderManagement.vue'
 import BeanTraceability from './components/BeanTraceability.vue'
+import { useCoffeeStore } from './stores/coffee.js'
 
 const activeTab = ref('extractionRec')
 const traceabilityBeanId = ref(null)
+const traceabilityViewData = ref(null)
+const coffeeStore = useCoffeeStore()
 
 function parseHash() {
   const hash = window.location.hash
-  const match = hash.match(/^#\/traceability\/(\d+)$/)
-  if (match) {
+  const traceMatch = hash.match(/^#\/traceability\/(\d+)$/)
+  if (traceMatch) {
     activeTab.value = 'traceability'
-    traceabilityBeanId.value = Number(match[1])
+    traceabilityBeanId.value = Number(traceMatch[1])
+    traceabilityViewData.value = null
+    return
+  }
+  const viewMatch = hash.match(/^#\/view\/([\s\S]+)$/)
+  if (viewMatch) {
+    const data = coffeeStore.parseViewHash(viewMatch[1])
+    if (data) {
+      activeTab.value = 'traceability'
+      traceabilityBeanId.value = null
+      traceabilityViewData.value = data
+    }
   }
 }
 

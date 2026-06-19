@@ -150,6 +150,220 @@ export const useCoffeeStore = defineStore('coffee', () => {
     return null
   }
 
+  function _b64EncodeUnicode(str) {
+    const utf8 = unescape(encodeURIComponent(str))
+    return btoa(utf8)
+  }
+
+  function _b64DecodeUnicode(str) {
+    try {
+      const utf8 = atob(str)
+      return decodeURIComponent(escape(utf8))
+    } catch (e) {
+      return null
+    }
+  }
+
+  function buildQRViewUrl(beanId, snapshotOverride = null) {
+    const jsonStr = buildQRPayload(beanId, snapshotOverride)
+    if (!jsonStr) return null
+    const base = window.location.origin + window.location.pathname
+    try {
+      const b64 = _b64EncodeUnicode(jsonStr)
+      return `${base}#/view/${b64}`
+    } catch (e) {
+      return buildQRUrl(beanId)
+    }
+  }
+
+  function parseViewHash(hashPart) {
+    if (!hashPart) return null
+    const jsonStr = _b64DecodeUnicode(hashPart)
+    if (!jsonStr) return null
+    return parseQRPayload(jsonStr)
+  }
+
+  const MAX_QR_BYTES = 600
+
+  function chunkQRPayload(jsonStr) {
+    if (!jsonStr) return []
+    try {
+      const encoded = _b64EncodeUnicode(jsonStr)
+      if (encoded.length <= MAX_QR_BYTES) {
+        return [{ index: 0, total: 1, data: encoded, isChunked: false }]
+      }
+      const chunkSize = MAX_QR_BYTES - 60
+      const chunks = []
+      let i = 0
+      let idx = 0
+      while (i < encoded.length) {
+        chunks.push(encoded.slice(i, i + chunkSize))
+        i += chunkSize
+        idx++
+      }
+      const total = chunks.length
+      return chunks.map((c, i) => ({
+        index: i,
+        total,
+        data: c,
+        isChunked: true,
+        header: `QRC:${i + 1}/${total}:`,
+      }))
+    } catch (e) {
+      return []
+    }
+  }
+
+  function getChunkQRText(chunk) {
+    if (!chunk.isChunked) {
+      const base = window.location.origin + window.location.pathname
+      return `${base}#/view/${chunk.data}`
+    }
+    return `${chunk.header}${chunk.data}`
+  }
+
+  function tryParseChunkText(text, chunkStore) {
+    if (!text) return null
+    if (text.startsWith('#/view/')) text = text.slice(7)
+    const chunkMatch = text.match(/^QRC:(\d+)\/(\d+):([\s\S]*)$/)
+    if (chunkMatch) {
+      const idx = parseInt(chunkMatch[1], 10) - 1
+      const total = parseInt(chunkMatch[2], 10)
+      const data = chunkMatch[3].trim()
+      chunkStore[idx] = data
+      const got = Object.keys(chunkStore).length
+      if (got === total) {
+        let full = ''
+        for (let i = 0; i < total; i++) full += chunkStore[i] || ''
+        const jsonStr = _b64DecodeUnicode(full)
+        return parseQRPayload(jsonStr)
+      }
+      return { __chunkProgress: { got, total } }
+    }
+    const decoded = _b64DecodeUnicode(text.trim())
+    if (decoded) {
+      const obj = parseQRPayload(decoded)
+      if (obj) return obj
+    }
+    return parseQRPayload(text)
+  }
+
+  function buildStandaloneHtml(archive) {
+    if (!archive) return ''
+    const a = archive
+    const bean = a.bean || {}
+    const curves = a.curves || []
+    const roasts = a.roastChain || []
+    const unlinked = a.unlinkedExtractions || []
+    const rating = a.avgRating
+    const ratingLabels = { acidity: '酸质', sweetness: '甜感', body: '醇厚度', aftertaste: '余韵', balance: '平衡度' }
+    const escapeHtml = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+
+    let html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(bean.name || '豆种溯源档案')}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#FFFDF9;color:#3E2C1C;padding:20px;max-width:720px;margin:0 auto}
+h1{font-size:22px;margin-bottom:4px}h2{font-size:16px;margin:18px 0 10px;color:#6F4E37}.meta{color:#8B7355;font-size:13px;margin-bottom:14px}
+.tag{display:inline-block;padding:2px 10px;background:#F0E0D0;border-radius:12px;font-size:12px;margin:0 4px 4px 0}
+.flavor-tag{background:linear-gradient(135deg,#FFF0E0,#FFE0C0);color:#8B4513}
+.timeline{position:relative;padding-left:8px}.step{display:flex;gap:12px;padding-bottom:18px;position:relative}
+.step-icon{flex-shrink:0;width:38px;height:38px;border-radius:50%;background:#FFF8F0;border:2px solid #EDE0D0;display:flex;align-items:center;justify-content:center;font-size:18px;z-index:1}
+.step-origin .step-icon{border-color:#6F4E37;background:#F5EDE4}.step-curve .step-icon{border-color:#D4A574;background:#FFF5EB}
+.step-roast .step-icon{border-color:#C0392B;background:#FEF0EE}.step-ext .step-icon{border-color:#8B6914;background:#FFFDE7}
+.step-rating .step-icon{border-color:#3E6B3E;background:#F0F7F0}
+.step::after{content:'';position:absolute;left:18px;top:38px;bottom:0;width:2px;background:linear-gradient(#D2B48C,#EDE0D0)}
+.step:last-child::after{display:none}.step-content{flex:1;min-width:0}
+.step-label{font-size:14px;font-weight:600;margin-bottom:8px}.card{background:#FFF8F0;border:1px solid #EDE0D0;border-radius:10px;padding:10px 12px;margin-bottom:6px}
+.card-title{font-size:13px;font-weight:600;margin-bottom:2px}.card-desc{font-size:12px;color:#8B7355;font-style:italic;margin-bottom:2px}
+.card-meta{font-size:12px;color:#A08968}.card-notes{font-size:12px;color:#6F4E37;font-style:italic;margin-top:2px}
+.detail{background:#FFF8F0;border:1px solid #EDE0D0;border-radius:10px;padding:10px 14px}.detail-row{display:flex;justify-content:space-between;padding:3px 0;font-size:13px}
+.detail-key{color:#8B7355}.detail-val{font-weight:600}
+.nested{margin-top:8px;padding-top:8px;border-top:1px dashed #E0D0B8}.nested-item{background:#FFFCF7;border:1px solid #F0E0D0;border-radius:8px;padding:6px 10px;margin-top:4px;font-size:12px}
+.nested-method{font-weight:500;color:#6F4E37}.nested-meta{color:#8B7355;margin-left:6px}.nested-notes{color:#6F4E37;font-style:italic;margin-top:2px}
+.rating-bars{background:#FFF8F0;border:1px solid #EDE0D0;border-radius:10px;padding:10px 14px}
+.rbar{display:flex;align-items:center;gap:8px;padding:3px 0}.rbar-label{width:52px;font-size:12px;color:#6F4E37;font-weight:500}
+.rbar-track{flex:1;height:8px;background:#F0E0D0;border-radius:4px;overflow:hidden}.rbar-fill{height:100%;background:linear-gradient(90deg,#D2B48C,#6F4E37);border-radius:4px}
+.rbar-val{width:26px;text-align:right;font-size:13px;font-weight:600}
+</style></head><body>
+<h1>${escapeHtml(bean.name || '未知豆种')}</h1>
+<div class="meta">
+<span class="tag">${escapeHtml(bean.origin || '-')}</span>
+<span class="tag">${escapeHtml(bean.variety || '-')}</span>
+<span class="tag">${escapeHtml(bean.process || '-')}</span>
+</div>`
+    if (bean.flavorTags && bean.flavorTags.length) {
+      html += `<div class="meta">`
+      for (const t of bean.flavorTags) html += `<span class="tag flavor-tag">${escapeHtml(t)}</span>`
+      html += `</div>`
+    }
+    html += `<div class="timeline">
+<div class="step step-origin"><div class="step-icon">🌍</div><div class="step-content"><div class="step-label">产地信息</div>
+<div class="detail">
+<div class="detail-row"><span class="detail-key">产地</span><span class="detail-val">${escapeHtml(bean.origin || '-')}</span></div>
+<div class="detail-row"><span class="detail-key">品种</span><span class="detail-val">${escapeHtml(bean.variety || '-')}</span></div>
+<div class="detail-row"><span class="detail-key">处理法</span><span class="detail-val">${escapeHtml(bean.process || '-')}</span></div>
+</div></div></div>`
+    if (curves.length) {
+      html += `<div class="step step-curve"><div class="step-icon">📈</div><div class="step-content"><div class="step-label">烘焙曲线 (${curves.length})</div>`
+      for (const c of curves) {
+        html += `<div class="card">
+<div class="card-title">${escapeHtml(c.name || '未命名曲线')}</div>
+${c.description ? `<div class="card-desc">${escapeHtml(c.description)}</div>` : ''}
+<div class="card-meta">${c.nodes?.length || 0} 个温度节点</div>
+</div>`
+      }
+      html += `</div></div>`
+    }
+    if (roasts.length) {
+      html += `<div class="step step-roast"><div class="step-icon">🔥</div><div class="step-content"><div class="step-label">烘焙记录 (${a.totalRoasts || roasts.length})</div>`
+      for (const r of roasts) {
+        html += `<div class="card">
+<div class="card-title">${escapeHtml(r.date || '-')} · ${escapeHtml(r.level || '')}${r.curve?.name ? ' · 📈 ' + escapeHtml(r.curve.name) : ''}</div>
+<div class="card-meta">${r.temperature || '-'}°C · ${r.duration || '-'} min</div>
+${r.notes ? `<div class="card-notes">${escapeHtml(r.notes)}</div>` : ''}`
+        if (r.extractions?.length) {
+          html += `<div class="nested"><div style="font-size:12px;font-weight:500;color:#6F4E37;margin-bottom:4px">☕ 关联萃取 (${r.extractions.length})</div>`
+          for (const e of r.extractions) {
+            html += `<div class="nested-item">
+<span class="nested-method">${escapeHtml(e.method || '-')}</span>
+<span class="nested-meta">${escapeHtml(e.ratio || '')} · ${escapeHtml(e.temperature || '')}°C · ${escapeHtml(e.time || '')}</span>
+${e.notes ? `<div class="nested-notes">${escapeHtml(e.notes)}</div>` : ''}
+</div>`
+          }
+          html += `</div>`
+        }
+        html += `</div>`
+      }
+      html += `</div></div>`
+    }
+    if (unlinked.length) {
+      html += `<div class="step step-ext"><div class="step-icon">☕</div><div class="step-content"><div class="step-label">独立萃取记录 (${unlinked.length})</div>`
+      for (const e of unlinked) {
+        html += `<div class="card">
+<div class="card-title">${escapeHtml(e.date || '-')} · ${escapeHtml(e.method || '-')}</div>
+<div class="card-meta">${escapeHtml(e.ratio || '')} · ${escapeHtml(e.temperature || '')}°C · ${escapeHtml(e.time || '')}</div>
+${e.notes ? `<div class="card-notes">${escapeHtml(e.notes)}</div>` : ''}
+</div>`
+      }
+      html += `</div></div>`
+    }
+    if (rating) {
+      html += `<div class="step step-rating"><div class="step-icon">📊</div><div class="step-content"><div class="step-label">风味评分</div>
+<div class="rating-bars">`
+      for (const key of ['acidity', 'sweetness', 'body', 'aftertaste', 'balance']) {
+        const v = rating[key] || 0
+        html += `<div class="rbar">
+<span class="rbar-label">${ratingLabels[key]}</span>
+<div class="rbar-track"><div class="rbar-fill" style="width:${(v / 10 * 100).toFixed(0)}%"></div></div>
+<span class="rbar-val">${v}</span>
+</div>`
+      }
+      html += `</div></div></div>`
+    }
+    html += `</div></body></html>`
+    return html
+  }
+
   async function loadAll() {
     beans.value = await db.beans.toArray()
     roasts.value = await db.roasts.toArray()
@@ -287,5 +501,6 @@ export const useCoffeeStore = defineStore('coffee', () => {
     addCuppingComparison, updateCuppingComparison, deleteCuppingComparison,
     addRoastCurve, updateRoastCurve, deleteRoastCurve,
     getBeanTraceability, buildQRPayload, buildQRUrl, parseQRPayload,
+    buildQRViewUrl, parseViewHash, chunkQRPayload, getChunkQRText, tryParseChunkText, buildStandaloneHtml,
   }
 })

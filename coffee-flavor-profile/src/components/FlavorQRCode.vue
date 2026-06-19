@@ -35,19 +35,36 @@
             </div>
           </div>
 
-          <canvas ref="qrCanvas" class="qr-canvas"></canvas>
-          <div v-if="qrTruncated" class="qr-truncated-hint">
-            ⚠️ 数据较大，二维码内为精简数据。点击下方「复制完整数据」获取完整档案。
+          <div v-if="!qrChunkMode">
+            <canvas ref="qrCanvas" class="qr-canvas"></canvas>
+            <div v-if="qrTruncated" class="qr-truncated-hint">
+              ⚠️ 数据较大，已生成多个分包二维码（见下方），依次扫码即可获得完整档案。
+            </div>
           </div>
+
+          <div v-if="qrChunkMode" class="qr-chunks-container">
+            <div class="qr-chunk-hint">
+              📦 数据较大，已拆分为 {{ qrChunks.length }} 个分包二维码。<br>
+              请依次扫码每一段，然后粘贴到「溯源档案 → 粘贴 JSON 查看」页面即可还原完整档案。
+            </div>
+            <div class="qr-chunks-grid">
+              <div v-for="(chunk, i) in qrChunks" :key="i" class="qr-chunk-item">
+                <div class="qr-chunk-label">第 {{ i + 1 }} / {{ qrChunks.length }} 段</div>
+                <canvas :id="'flavor-qr-chunk-' + i" class="qr-canvas qr-chunk-canvas"></canvas>
+              </div>
+            </div>
+          </div>
+
           <p class="qr-scan-hint">扫码即可查看溯源档案数据</p>
 
           <div class="qr-url-display">
-            <div class="qr-url-label">深度链接（同设备可直接跳转）：</div>
+            <div class="qr-url-label">深度链接（扫码直接打开完整档案）：</div>
             <a v-if="currentQRUrl" :href="currentQRUrl" target="_blank" class="qr-url-link">{{ currentQRUrl }}</a>
           </div>
 
           <div class="qr-action-row">
             <button class="btn btn-sm" @click="copyFullData">📋 复制完整数据</button>
+            <button class="btn btn-sm" @click="downloadHtml">📄 下载 HTML</button>
             <button class="btn btn-sm" @click="showJsonPreview = !showJsonPreview">
               {{ showJsonPreview ? '隐藏' : '查看' }} JSON
             </button>
@@ -153,6 +170,8 @@ const qrCanvas = ref(null)
 const activeBeanId = ref(null)
 const showJsonPreview = ref(false)
 const qrTruncated = ref(false)
+const qrChunkMode = ref(false)
+const qrChunks = ref([])
 
 const ratingLabels = {
   acidity: '酸质',
@@ -222,8 +241,17 @@ const fullQRData = computed(() => {
 
 const currentQRUrl = computed(() => {
   const persisted = currentPersistedQR.value
-  if (persisted && persisted.qrUrl) return persisted.qrUrl
-  if (activeBeanId.value) return store.buildQRUrl(activeBeanId.value)
+  if (persisted && persisted.qrUrl) {
+    const jsonStr = fullQRData.value
+    const base = window.location.origin + window.location.pathname
+    try {
+      const utf8 = unescape(encodeURIComponent(jsonStr))
+      const b64 = btoa(utf8)
+      return `${base}#/view/${b64}`
+    } catch (e) {}
+    return persisted.qrUrl
+  }
+  if (activeBeanId.value) return store.buildQRViewUrl(activeBeanId.value) || store.buildQRUrl(activeBeanId.value)
   return null
 })
 
@@ -262,23 +290,45 @@ watch(() => props.visible, async (val) => {
   if (val && displayItems.value.length > 0) {
     activeBeanId.value = displayItems.value[0].beanId
     showJsonPreview.value = false
+    qrChunkMode.value = false
+    qrChunks.value = []
     await renderQR()
   }
 })
 
 watch(activeBeanId, async () => {
   showJsonPreview.value = false
+  qrChunkMode.value = false
+  qrChunks.value = []
   await renderQR()
 })
+
+async function renderChunks(chunks) {
+  await nextTick()
+  for (let i = 0; i < chunks.length; i++) {
+    const canvas = document.getElementById(`flavor-qr-chunk-${i}`)
+    if (!canvas) continue
+    try {
+      await QRCode.toCanvas(canvas, store.getChunkQRText(chunks[i]), {
+        width: 160,
+        margin: 2,
+        errorCorrectionLevel: 'L',
+        color: { dark: '#3E2C1C', light: '#FFFDF9' },
+      })
+    } catch (e) {}
+  }
+}
 
 async function renderQR() {
   await nextTick()
   if (!qrCanvas.value) return
   qrTruncated.value = false
-  let data = fullQRData.value
-  if (!data) return
+  qrChunkMode.value = false
+  qrChunks.value = []
+  let primaryUrl = currentQRUrl.value
+  if (!primaryUrl) return
   try {
-    await QRCode.toCanvas(qrCanvas.value, data, {
+    await QRCode.toCanvas(qrCanvas.value, primaryUrl, {
       width: 200,
       margin: 2,
       errorCorrectionLevel: 'L',
@@ -286,23 +336,22 @@ async function renderQR() {
     })
   } catch (e) {
     qrTruncated.value = true
-    const compact = getCompactQRData()
-    try {
-      await QRCode.toCanvas(qrCanvas.value, compact, {
-        width: 200,
-        margin: 2,
-        errorCorrectionLevel: 'L',
-        color: { dark: '#3E2C1C', light: '#FFFDF9' },
-      })
-    } catch (e2) {
+    const jsonStr = fullQRData.value
+    const chunks = store.chunkQRPayload(jsonStr)
+    if (chunks.length > 1) {
+      qrChunkMode.value = true
+      qrChunks.value = chunks
+      await nextTick()
+      await renderChunks(chunks)
+    } else if (chunks.length === 1) {
       try {
-        await QRCode.toCanvas(qrCanvas.value, currentQRUrl.value || '', {
+        await QRCode.toCanvas(qrCanvas.value, store.getChunkQRText(chunks[0]), {
           width: 200,
           margin: 2,
           errorCorrectionLevel: 'L',
           color: { dark: '#3E2C1C', light: '#FFFDF9' },
         })
-      } catch (e3) {}
+      } catch (e2) {}
     }
   }
 }
@@ -326,6 +375,22 @@ async function copyFullData() {
     alert('复制失败，请手动从 JSON 预览框复制')
     showJsonPreview.value = true
   }
+}
+
+function downloadHtml() {
+  if (!currentArchive.value) return
+  const html = store.buildStandaloneHtml(currentArchive.value)
+  if (!html) return
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  const name = (currentArchive.value.bean?.name || 'traceability').replace(/[^\w\u4e00-\u9fa5-]/g, '_')
+  a.href = url
+  a.download = `${name}_溯源档案.html`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 function close() {
@@ -469,6 +534,41 @@ function close() {
   padding: 6px 10px;
   border-radius: 8px;
   margin-bottom: 6px;
+}
+.qr-chunks-container {
+  text-align: center;
+  margin-bottom: 8px;
+}
+.qr-chunk-hint {
+  background: #FFF3E0;
+  color: #5D4037;
+  padding: 8px 12px;
+  border-radius: 8px;
+  margin: 6px 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+}
+.qr-chunks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.qr-chunk-item {
+  background: #FFFDF9;
+  border: 1px solid #EDE0D0;
+  border-radius: 10px;
+  padding: 8px;
+}
+.qr-chunk-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6F4E37;
+  margin-bottom: 4px;
+}
+.qr-chunk-canvas {
+  width: 140px !important;
+  height: 140px !important;
 }
 .qr-scan-hint {
   font-size: 12px;

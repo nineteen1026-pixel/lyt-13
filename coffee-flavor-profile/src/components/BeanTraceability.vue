@@ -10,16 +10,19 @@
     </div>
 
     <div v-if="importMode" class="import-view">
-      <p class="selector-hint">将扫码获取的溯源 JSON 粘贴到下方，即可查看完整档案</p>
+      <p class="selector-hint">将扫码获取的溯源 JSON 粘贴到下方，即可查看完整档案（支持分包二维码，依次粘贴每一段即可）</p>
       <div class="import-box">
         <textarea
           v-model="importedJson"
           class="import-textarea"
-          placeholder='例如：{"v":1,"bean":{...},"curves":[...],"roastChain":[...}'
+          placeholder='例如：{"v":1,"bean":{...},"curves":[...],"roastChain":[...} 或 QRC:1/3:... 分包片段'
         ></textarea>
         <div class="import-actions">
           <button class="btn btn-primary btn-sm" @click="parseImportedJson" :disabled="!importedJson.trim()">📖 解析查看</button>
-          <button class="btn btn-sm" @click="importedJson = ''; importedArchive = null; importError = ''">清空</button>
+          <button class="btn btn-sm" @click="clearImport">清空</button>
+        </div>
+        <div v-if="chunkProgress" class="chunk-progress">
+          📦 分包数据：已收到 {{ chunkProgress.got }} / {{ chunkProgress.total }} 段
         </div>
         <div v-if="importError" class="import-error">{{ importError }}</div>
       </div>
@@ -28,7 +31,10 @@
         <div class="archive-header">
           <div class="archive-title-row">
             <h3 class="archive-bean-name">{{ importedArchive.bean.name }}</h3>
-            <div class="qr-data-badge">📋 导入数据</div>
+            <div class="archive-title-btns">
+              <span class="qr-data-badge">📋 导入数据</span>
+              <button class="btn btn-sm" @click="downloadHtml">📄 下载 HTML</button>
+            </div>
           </div>
           <div class="archive-meta">
             <span class="tag">{{ importedArchive.bean.origin }}</span>
@@ -76,12 +82,17 @@
     </div>
 
     <div v-else class="traceability-view">
-      <button class="btn btn-back" @click="selectedBeanId = null">← 返回列表</button>
+      <button v-if="!isViewData" class="btn btn-back" @click="selectedBeanId = null">← 返回列表</button>
 
       <div class="archive-header">
         <div class="archive-title-row">
           <h3 class="archive-bean-name">{{ selectedArchive.bean.name }}</h3>
-          <button class="btn btn-primary btn-sm" @click="showQR = true">🔳 风味二维码</button>
+          <div class="archive-title-btns">
+            <span v-if="isViewData" class="qr-view-data-badge">🔗 URL 解码数据</span>
+            <span v-if="isImported" class="qr-data-badge">📋 导入数据</span>
+            <button class="btn btn-sm" @click="downloadHtml">📄 下载 HTML</button>
+            <button v-if="!isViewData && !isImported" class="btn btn-primary btn-sm" @click="showQR = true">🔳 风味二维码</button>
+          </div>
         </div>
         <div class="archive-meta">
           <span class="tag">{{ selectedArchive.bean.origin }}</span>
@@ -116,10 +127,27 @@
             <span>{{ selectedArchive?.bean.variety }}</span>
             <span>{{ selectedArchive?.bean.process }}</span>
           </div>
-          <canvas ref="qrCanvas" class="qr-canvas"></canvas>
-          <div v-if="qrTruncated" class="qr-truncated-hint">
-            ⚠️ 数据较大，二维码内为精简数据。点击下方「复制完整数据」获取完整档案。
+
+          <div v-if="!qrChunkMode">
+            <canvas ref="qrCanvas" class="qr-canvas"></canvas>
+            <div v-if="qrTruncated" class="qr-truncated-hint">
+              ⚠️ 数据较大，已生成多个分包二维码（见下方），依次扫码即可获得完整档案。
+            </div>
           </div>
+
+          <div v-if="qrChunkMode" class="qr-chunks-container">
+            <div class="qr-chunk-hint">
+              📦 数据较大，已拆分为 {{ qrChunks.length }} 个分包二维码。<br>
+              请依次扫码每一段，然后粘贴到「粘贴 JSON 查看」页面即可还原完整档案。
+            </div>
+            <div class="qr-chunks-grid">
+              <div v-for="(chunk, i) in qrChunks" :key="i" class="qr-chunk-item">
+                <div class="qr-chunk-label">第 {{ i + 1 }} / {{ qrChunks.length }} 段</div>
+                <canvas :id="'qr-chunk-' + i" class="qr-canvas qr-chunk-canvas"></canvas>
+              </div>
+            </div>
+          </div>
+
           <p class="qr-hint">扫码即可查看溯源档案数据</p>
           <div class="qr-url-display">
             <div class="qr-url-label">深度链接：</div>
@@ -127,6 +155,7 @@
           </div>
           <div class="qr-action-row">
             <button class="btn btn-sm" @click="copyFullData">📋 复制完整数据</button>
+            <button class="btn btn-sm" @click="downloadHtml">📄 下载 HTML</button>
             <button class="btn btn-sm" @click="showJsonPreview = !showJsonPreview">
               {{ showJsonPreview ? '隐藏' : '查看' }} JSON
             </button>
@@ -308,6 +337,7 @@ export default {
   components: { TimelineOrigin, TimelineCurves, TimelineRoasts, TimelineExtractions, TimelineRating, TimelineEmpty },
   props: {
     initialBeanId: { type: Number, default: null },
+    viewData: { type: Object, default: null },
   },
   setup(props) {
     const store = useCoffeeStore()
@@ -317,24 +347,41 @@ export default {
     const importedJson = ref('')
     const importedArchive = ref(null)
     const importError = ref('')
+    const chunkStore = ref({})
+    const chunkProgress = ref(null)
     const showQR = ref(false)
     const showJsonPreview = ref(false)
     const qrCanvas = ref(null)
+    const qrCanvases = ref([])
     const qrTruncated = ref(false)
+    const qrChunkMode = ref(false)
+    const qrChunks = ref([])
+    const qrCurrentIndex = ref(0)
 
     const selectedArchive = computed(() => {
+      if (props.viewData) return props.viewData
+      if (importedArchive.value) return importedArchive.value
       if (!selectedBeanId.value) return null
       return store.getBeanTraceability(selectedBeanId.value)
     })
 
+    const isViewData = computed(() => !!props.viewData)
+    const isImported = computed(() => !!importedArchive.value)
+
     const fullQRData = computed(() => {
       if (!selectedArchive.value) return ''
+      if (props.viewData || importedArchive.value) {
+        return JSON.stringify(selectedArchive.value)
+      }
       return store.buildQRPayload(selectedBeanId.value)
     })
 
     const currentQRUrl = computed(() => {
-      if (selectedBeanId.value) return store.buildQRUrl(selectedBeanId.value)
-      return null
+      if (!selectedArchive.value) return null
+      if (props.viewData || importedArchive.value) {
+        return store.buildQRUrl(selectedArchive.value.bean?.id)
+      }
+      return store.buildQRViewUrl(selectedBeanId.value) || store.buildQRUrl(selectedBeanId.value)
     })
 
     onMounted(() => {
@@ -352,12 +399,44 @@ export default {
     function parseImportedJson() {
       importError.value = ''
       importedArchive.value = null
-      const result = store.parseQRPayload(importedJson.value)
+      chunkProgress.value = null
+      const result = store.tryParseChunkText(importedJson.value, chunkStore.value)
       if (!result) {
-        importError.value = '解析失败：请粘贴有效的溯源 JSON 数据'
+        importError.value = '解析失败：请粘贴有效的溯源 JSON 或二维码数据'
+        return
+      }
+      if (result.__chunkProgress) {
+        chunkProgress.value = result.__chunkProgress
+        importError.value = `已收到 ${result.__chunkProgress.got}/${result.__chunkProgress.total} 个二维码片段，请继续扫码粘贴下一段`
         return
       }
       importedArchive.value = result
+      chunkStore.value = {}
+      chunkProgress.value = null
+    }
+
+    function clearImport() {
+      importedArchive.value = null
+      importedJson.value = ''
+      importError.value = ''
+      chunkStore.value = {}
+      chunkProgress.value = null
+    }
+
+    function downloadHtml() {
+      if (!selectedArchive.value) return
+      const html = store.buildStandaloneHtml(selectedArchive.value)
+      if (!html) return
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const name = (selectedArchive.value.bean?.name || 'traceability').replace(/[^\w\u4e00-\u9fa5-]/g, '_')
+      a.href = url
+      a.download = `${name}_溯源档案.html`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
     }
 
     function getCompactQRData() {
@@ -391,14 +470,29 @@ export default {
     }
 
     watch(showQR, async (val) => {
-      if (val && selectedBeanId.value) {
+      if (val && selectedArchive.value) {
         await nextTick()
         showJsonPreview.value = false
         qrTruncated.value = false
-        let data = fullQRData.value
-        if (!data) return
+        qrChunkMode.value = false
+        qrChunks.value = []
+        qrCurrentIndex.value = 0
+        const primaryUrl = (() => {
+          if (props.viewData || importedArchive.value) {
+            const jsonStr = fullQRData.value
+            const base = window.location.origin + window.location.pathname
+            try {
+              const utf8 = unescape(encodeURIComponent(jsonStr))
+              const b64 = btoa(utf8)
+              return `${base}#/view/${b64}`
+            } catch (e) {
+              return currentQRUrl.value || ''
+            }
+          }
+          return store.buildQRViewUrl(selectedBeanId.value) || store.buildQRUrl(selectedBeanId.value)
+        })()
         try {
-          await QRCode.toCanvas(qrCanvas.value, data, {
+          await QRCode.toCanvas(qrCanvas.value, primaryUrl, {
             width: 220,
             margin: 2,
             errorCorrectionLevel: 'L',
@@ -406,27 +500,52 @@ export default {
           })
         } catch (e) {
           qrTruncated.value = true
-          const compact = getCompactQRData()
-          try {
-            await QRCode.toCanvas(qrCanvas.value, compact, {
-              width: 220,
-              margin: 2,
-              errorCorrectionLevel: 'L',
-              color: { dark: '#3E2C1C', light: '#FFFDF9' },
-            })
-          } catch (e2) {
+          const jsonStr = fullQRData.value
+          const chunks = store.chunkQRPayload(jsonStr)
+          if (chunks.length > 1) {
+            qrChunkMode.value = true
+            qrChunks.value = chunks
+            await nextTick()
+            await renderChunks(chunks)
+          } else if (chunks.length === 1) {
+            const text = store.getChunkQRText(chunks[0])
             try {
-              await QRCode.toCanvas(qrCanvas.value, currentQRUrl.value || '', {
+              await QRCode.toCanvas(qrCanvas.value, text, {
                 width: 220,
                 margin: 2,
                 errorCorrectionLevel: 'L',
                 color: { dark: '#3E2C1C', light: '#FFFDF9' },
               })
-            } catch (e3) {}
+            } catch (e2) {
+              try {
+                await QRCode.toCanvas(qrCanvas.value, currentQRUrl.value || '', {
+                  width: 220,
+                  margin: 2,
+                  errorCorrectionLevel: 'L',
+                  color: { dark: '#3E2C1C', light: '#FFFDF9' },
+                })
+              } catch (e3) {}
+            }
           }
         }
       }
     })
+
+    async function renderChunks(chunks) {
+      await nextTick()
+      for (let i = 0; i < chunks.length; i++) {
+        const canvas = document.getElementById(`qr-chunk-${i}`)
+        if (!canvas) continue
+        try {
+          await QRCode.toCanvas(canvas, store.getChunkQRText(chunks[i]), {
+            width: 180,
+            margin: 2,
+            errorCorrectionLevel: 'L',
+            color: { dark: '#3E2C1C', light: '#FFFDF9' },
+          })
+        } catch (e) {}
+      }
+    }
 
     async function copyFullData() {
       const data = fullQRData.value
@@ -447,16 +566,25 @@ export default {
       importedJson,
       importedArchive,
       importError,
+      chunkProgress,
       selectedArchive,
+      isViewData,
+      isImported,
       showQR,
       showJsonPreview,
       qrCanvas,
+      qrCanvases,
       qrTruncated,
+      qrChunkMode,
+      qrChunks,
+      qrCurrentIndex,
       ratingLabels,
       fullQRData,
       currentQRUrl,
       parseImportedJson,
+      clearImport,
       copyFullData,
+      downloadHtml,
     }
   },
 }
@@ -608,6 +736,63 @@ export default {
   border-radius: 12px;
   font-size: 12px;
   font-weight: 500;
+}
+.qr-view-data-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  background: #E8F5E9;
+  color: #2E7D32;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.chunk-progress {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: #FFF3E0;
+  color: #E65100;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.archive-title-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.qr-chunks-container {
+  text-align: center;
+}
+.qr-chunk-hint {
+  background: #FFF3E0;
+  color: #5D4037;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin: 10px 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.qr-chunks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+.qr-chunk-item {
+  background: #FFFDF9;
+  border: 1px solid #EDE0D0;
+  border-radius: 10px;
+  padding: 10px;
+}
+.qr-chunk-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6F4E37;
+  margin-bottom: 6px;
+}
+.qr-chunk-canvas {
+  width: 160px !important;
+  height: 160px !important;
 }
 .timeline {
   position: relative;
