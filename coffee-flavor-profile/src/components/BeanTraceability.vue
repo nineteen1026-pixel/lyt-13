@@ -159,7 +159,7 @@
             <span>{{ selectedArchive?.bean.process }}</span>
           </div>
           <canvas ref="qrCanvas" class="qr-canvas"></canvas>
-          <p class="qr-hint">扫描二维码查看豆种溯源与风味档案</p>
+          <p class="qr-hint">扫描二维码即可打开完整溯源档案</p>
           <div class="qr-summary">
             <div v-if="selectedArchive?.avgRating" class="qr-rating-summary">
               <span v-for="(val, key) in selectedArchive.avgRating" :key="key" class="qr-rating-item">
@@ -177,9 +177,13 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import QRCode from 'qrcode'
 import { useCoffeeStore } from '../stores/coffee.js'
+
+const props = defineProps({
+  initialBeanId: { type: Number, default: null },
+})
 
 const store = useCoffeeStore()
 const selectedBeanId = ref(null)
@@ -199,12 +203,24 @@ const selectedArchive = computed(() => {
   return store.getBeanTraceability(selectedBeanId.value)
 })
 
+onMounted(() => {
+  if (props.initialBeanId) {
+    selectedBeanId.value = props.initialBeanId
+  }
+})
+
+watch(() => props.initialBeanId, (val) => {
+  if (val) {
+    selectedBeanId.value = val
+  }
+})
+
 watch(showQR, async (val) => {
   if (val && selectedBeanId.value) {
     await nextTick()
-    const payload = store.buildQRPayload(selectedBeanId.value)
-    if (payload && qrCanvas.value) {
-      QRCode.toCanvas(qrCanvas.value, payload, {
+    const url = store.buildQRUrl(selectedBeanId.value)
+    if (url && qrCanvas.value) {
+      QRCode.toCanvas(qrCanvas.value, url, {
         width: 220,
         margin: 2,
         color: { dark: '#3E2C1C', light: '#FFFDF9' },

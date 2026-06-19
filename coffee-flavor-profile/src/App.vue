@@ -28,13 +28,13 @@
       <InventoryManagement v-if="activeTab === 'inventory'" />
       <PromotionManagement v-if="activeTab === 'promotion'" />
       <OrderManagement v-if="activeTab === 'order'" />
-      <BeanTraceability v-if="activeTab === 'traceability'" />
+      <BeanTraceability v-if="activeTab === 'traceability'" :initialBeanId="traceabilityBeanId" />
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import BeanRegistration from './components/BeanRegistration.vue'
 import RoastRecord from './components/RoastRecord.vue'
 import RoastCurve from './components/RoastCurve.vue'
@@ -49,6 +49,29 @@ import OrderManagement from './components/OrderManagement.vue'
 import BeanTraceability from './components/BeanTraceability.vue'
 
 const activeTab = ref('extractionRec')
+const traceabilityBeanId = ref(null)
+
+function parseHash() {
+  const hash = window.location.hash
+  const match = hash.match(/^#\/traceability\/(\d+)$/)
+  if (match) {
+    activeTab.value = 'traceability'
+    traceabilityBeanId.value = Number(match[1])
+  }
+}
+
+function onHashChange() {
+  parseHash()
+}
+
+onMounted(() => {
+  parseHash()
+  window.addEventListener('hashchange', onHashChange)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('hashchange', onHashChange)
+})
 const tabs = [
   { key: 'extractionRec', icon: '🎯', label: '萃取参数推荐' },
   { key: 'recommend', icon: '🧠', label: '风味推荐' },

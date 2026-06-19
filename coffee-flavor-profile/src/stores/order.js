@@ -37,6 +37,7 @@ export const useOrderStore = defineStore('order', () => {
   const orderItems = ref([])
   const payments = ref([])
   const reminders = ref([])
+  const orderQRCodes = ref([])
   let timeoutTimer = null
 
   const ordersWithDetails = computed(() => {
@@ -78,6 +79,7 @@ export const useOrderStore = defineStore('order', () => {
     orderItems.value = await db.orderItems.toArray()
     payments.value = await db.payments.toArray()
     reminders.value = await db.paymentReminders.toArray()
+    orderQRCodes.value = await db.orderQRCodes.toArray()
   }
 
   function startTimeoutChecker() {
@@ -459,6 +461,44 @@ export const useOrderStore = defineStore('order', () => {
     return reminderData
   }
 
+  function getOrderQRCodes(orderId) {
+    return orderQRCodes.value.filter(q => q.orderId === orderId)
+  }
+
+  async function generateOrderQRCodes(orderId) {
+    const existing = orderQRCodes.value.filter(q => q.orderId === orderId)
+    if (existing.length > 0) return existing
+
+    const items = orderItems.value.filter(i => i.orderId === orderId)
+    const now = new Date()
+    const base = window.location.origin + window.location.pathname
+    const saved = []
+
+    for (const item of items) {
+      const qrUrl = `${base}#/traceability/${item.beanId}`
+      const snapshot = {
+        beanName: item.beanName,
+        beanId: item.beanId,
+        quantity: item.quantity,
+      }
+      const record = {
+        orderId,
+        beanId: item.beanId,
+        beanName: item.beanName,
+        qrUrl,
+        snapshot: JSON.stringify(snapshot),
+        generatedAt: now.toISOString(),
+        createdAt: now.toISOString(),
+      }
+      const id = await db.orderQRCodes.add(record)
+      record.id = id
+      orderQRCodes.value.push(record)
+      saved.push(record)
+    }
+
+    return saved
+  }
+
   async function shipOrder(orderId) {
     const order = orders.value.find(o => o.id === orderId)
     if (!order) throw new Error('订单不存在')
@@ -525,6 +565,7 @@ export const useOrderStore = defineStore('order', () => {
     orderItems,
     payments,
     reminders,
+    orderQRCodes,
     ordersWithDetails,
     presaleOrders,
     pendingDepositOrders,
@@ -543,5 +584,7 @@ export const useOrderStore = defineStore('order', () => {
     completeOrder,
     checkAndSendPendingReminders,
     getStatusText,
+    getOrderQRCodes,
+    generateOrderQRCodes,
   }
 })

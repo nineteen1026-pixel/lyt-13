@@ -219,7 +219,7 @@
             完成订单
           </button>
           <button
-            v-if="['paid', 'shipped', 'completed'].includes(order.status)"
+            v-if="['paid', 'shipped', 'completed'].includes(order.status) || orderHasQR(order.id)"
             class="btn btn-sm qr-btn"
             @click="openQRCode(order)"
           >
@@ -238,6 +238,7 @@
       :orderNo="qrOrderData.orderNo"
       :customerName="qrOrderData.customerName"
       :beanItems="qrOrderData.beanItems"
+      :persistedQRCodes="qrOrderData.persistedQRCodes"
       @close="showQRCode = false"
     />
   </div>
@@ -257,7 +258,7 @@ const promoStore = usePromotionStore()
 const showCreateForm = ref(false)
 const activeFilter = ref('all')
 const showQRCode = ref(false)
-const qrOrderData = ref({ orderNo: '', customerName: '', beanItems: [] })
+const qrOrderData = ref({ orderNo: '', customerName: '', beanItems: [], persistedQRCodes: [] })
 let countdownTimer = null
 
 const form = reactive({
@@ -447,11 +448,12 @@ async function handleShip(orderId) {
 async function handleComplete(orderId) {
   try {
     await orderStore.completeOrder(orderId)
+    await orderStore.generateOrderQRCodes(orderId)
     const order = orderStore.ordersWithDetails.find(o => o.id === orderId)
     if (order) {
       openQRCode(order)
     }
-    alert('订单已完成，风味二维码已生成')
+    alert('订单已完成，风味二维码已生成并绑定')
   } catch (e) {
     alert('操作失败: ' + e.message)
   }
@@ -463,12 +465,18 @@ function openQRCode(order) {
     beanId: item.beanId,
     beanName: item.beanName,
   }))
+  const persistedQRCodes = orderStore.getOrderQRCodes(order.id)
   qrOrderData.value = {
     orderNo: order.orderNo,
     customerName: order.customerName,
     beanItems,
+    persistedQRCodes,
   }
   showQRCode.value = true
+}
+
+function orderHasQR(orderId) {
+  return orderStore.getOrderQRCodes(orderId).length > 0
 }
 
 function getCountdown(dueAtStr) {

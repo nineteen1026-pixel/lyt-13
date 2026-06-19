@@ -9,11 +9,12 @@
         <div class="qr-order-info">
           <div class="qr-order-no">订单号: {{ orderNo }}</div>
           <div class="qr-customer">{{ customerName }}</div>
+          <div v-if="generatedAt" class="qr-generated">生成于 {{ formatTime(generatedAt) }}</div>
         </div>
 
         <div class="qr-tabs">
           <button
-            v-for="item in beanItems"
+            v-for="item in displayItems"
             :key="item.beanId"
             :class="['qr-tab', { active: activeBeanId === item.beanId }]"
             @click="switchBean(item.beanId)"
@@ -34,7 +35,10 @@
 
           <canvas ref="qrCanvas" class="qr-canvas"></canvas>
 
-          <p class="qr-scan-hint">扫描查看完整溯源档案</p>
+          <p class="qr-scan-hint">扫码即可打开完整溯源档案</p>
+          <div v-if="currentQRUrl" class="qr-url-display">
+            <a :href="currentQRUrl" target="_blank" class="qr-url-link">{{ currentQRUrl }}</a>
+          </div>
 
           <div v-if="currentArchive.bean.flavorTags?.length" class="qr-flavor-section">
             <div class="qr-section-label">风味标签</div>
@@ -88,6 +92,7 @@ const props = defineProps({
   orderNo: String,
   customerName: String,
   beanItems: { type: Array, default: () => [] },
+  persistedQRCodes: { type: Array, default: () => [] },
 })
 
 const emit = defineEmits(['close'])
@@ -103,14 +108,40 @@ const ratingLabels = {
   balance: '平衡度',
 }
 
+const displayItems = computed(() => {
+  if (props.persistedQRCodes.length > 0) {
+    return props.persistedQRCodes.map(q => ({
+      beanId: q.beanId,
+      beanName: q.beanName,
+    }))
+  }
+  return props.beanItems
+})
+
+const generatedAt = computed(() => {
+  if (props.persistedQRCodes.length > 0) {
+    return props.persistedQRCodes[0].generatedAt
+  }
+  return null
+})
+
+const currentQRUrl = computed(() => {
+  if (!activeBeanId.value) return null
+  if (props.persistedQRCodes.length > 0) {
+    const qr = props.persistedQRCodes.find(q => q.beanId === activeBeanId.value)
+    if (qr) return qr.qrUrl
+  }
+  return store.buildQRUrl(activeBeanId.value)
+})
+
 const currentArchive = computed(() => {
   if (!activeBeanId.value) return null
   return store.getBeanTraceability(activeBeanId.value)
 })
 
 watch(() => props.visible, async (val) => {
-  if (val && props.beanItems.length > 0) {
-    activeBeanId.value = props.beanItems[0].beanId
+  if (val && displayItems.value.length > 0) {
+    activeBeanId.value = displayItems.value[0].beanId
     await renderQR()
   }
 })
@@ -121,9 +152,9 @@ watch(activeBeanId, async () => {
 
 async function renderQR() {
   await nextTick()
-  const payload = activeBeanId.value ? store.buildQRPayload(activeBeanId.value) : null
-  if (payload && qrCanvas.value) {
-    QRCode.toCanvas(qrCanvas.value, payload, {
+  const url = currentQRUrl.value
+  if (url && qrCanvas.value) {
+    QRCode.toCanvas(qrCanvas.value, url, {
       width: 200,
       margin: 2,
       color: { dark: '#3E2C1C', light: '#FFFDF9' },
@@ -133,6 +164,11 @@ async function renderQR() {
 
 function switchBean(beanId) {
   activeBeanId.value = beanId
+}
+
+function formatTime(iso) {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString()
 }
 
 function close() {
@@ -160,6 +196,8 @@ function close() {
   max-width: 420px;
   width: 100%;
   box-shadow: 0 8px 32px rgba(62, 44, 28, 0.25);
+  max-height: 90vh;
+  overflow-y: auto;
 }
 .qr-modal-header {
   display: flex;
@@ -188,6 +226,11 @@ function close() {
   font-size: 14px;
   font-weight: 500;
   color: #3E2C1C;
+}
+.qr-generated {
+  font-size: 11px;
+  color: #A08968;
+  margin-top: 2px;
 }
 .qr-tabs {
   display: flex;
@@ -247,7 +290,19 @@ function close() {
 .qr-scan-hint {
   font-size: 12px;
   color: #A08968;
+  margin-bottom: 6px;
+}
+.qr-url-display {
   margin-bottom: 16px;
+}
+.qr-url-link {
+  font-size: 11px;
+  color: #6F4E37;
+  word-break: break-all;
+  text-decoration: underline;
+}
+.qr-url-link:hover {
+  color: #3E2C1C;
 }
 .qr-section-label {
   font-size: 13px;
