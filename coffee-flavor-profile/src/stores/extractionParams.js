@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import db from '../db.js'
 import {
   computeRecommendation,
+  computeScoreBasedAdjustment,
   batchRunRecommendations as batchRunAlgo,
   BEAN_VARIETIES,
   ROAST_LEVELS,
@@ -26,6 +27,10 @@ export const useExtractionParamsStore = defineStore('extractionParams', () => {
   const lastWeightIteration = ref(null)
   const currentWeights = ref({ typeW: 0.25, varietyW: 0.35, roastW: 0.30, processW: 0.10 })
   const weightHistory = ref([])
+  const scoreAdjustments = ref({})
+  const scoreAdjustmentCache = ref(new Map())
+  const selectedBeanVarietyForRefresh = ref('')
+  const selectedRoastLevelForRefresh = ref('')
 
   const svc = getRecommendationService()
 
@@ -103,6 +108,39 @@ export const useExtractionParamsStore = defineStore('extractionParams', () => {
     }
   }
 
+  function _invalidateScoreAdjustment(beanVariety, roastLevel) {
+    const key = `${beanVariety}|${roastLevel}`
+    scoreAdjustmentCache.value.delete(key)
+    delete scoreAdjustments.value[key]
+  }
+
+  function getScoreAdjustment(beanVariety, roastLevel) {
+    const key = `${beanVariety}|${roastLevel}`
+    if (scoreAdjustmentCache.value.has(key)) {
+      return scoreAdjustmentCache.value.get(key)
+    }
+    const adjustment = computeScoreBasedAdjustment(
+      paramHistory.value, beanVariety, roastLevel
+    )
+    scoreAdjustmentCache.value.set(key, adjustment)
+    scoreAdjustments.value[key] = adjustment
+    return adjustment
+  }
+
+  function refreshAllScoreAdjustments() {
+    scoreAdjustmentCache.value.clear()
+    scoreAdjustments.value = {}
+    const combos = new Set()
+    paramHistory.value.forEach(r => combos.add(`${r.beanVariety}|${r.roastLevel}`))
+    combos.forEach(key => {
+      const [bv, rl] = key.split('|')
+      const adj = computeScoreBasedAdjustment(paramHistory.value, bv, rl)
+      scoreAdjustmentCache.value.set(key, adj)
+      scoreAdjustments.value[key] = adj
+    })
+    return scoreAdjustments.value
+  }
+
   async function loadAll() {
     paramHistory.value = await db.extractionParams.toArray()
     feedbacks.value = await db.recommendationFeedbacks.toArray()
@@ -114,6 +152,9 @@ export const useExtractionParamsStore = defineStore('extractionParams', () => {
   }
 
   async function recommend(beanVariety, roastLevel, forceRefresh = false) {
+    selectedBeanVarietyForRefresh.value = beanVariety
+    selectedRoastLevelForRefresh.value = roastLevel
+
     const cacheKey = `${beanVariety}|${roastLevel}`
     const now = Date.now()
     const CACHE_TTL = 5 * 60 * 1000
@@ -201,15 +242,24 @@ export const useExtractionParamsStore = defineStore('extractionParams', () => {
         temperature: Math.round((feedback.recommendedTempMin + feedback.recommendedTempMax) / 2),
         brewTime: +((feedback.recommendedTimeMin + feedback.recommendedTimeMax) / 2).toFixed(1),
         overallScore: feedback.satisfaction,
-        acidityScore: 6,
-        sweetnessScore: 6,
-        bodyScore: 6,
-        aftertasteScore: 6,
-        balanceScore: 6,
+        acidityScore: feedback.acidity || 6,
+        sweetnessScore: feedback.sweetness || 6,
+        bodyScore: feedback.body || 6,
+        aftertasteScore: feedback.aftertaste || 6,
+        balanceScore: feedback.balance || 6,
         sampleCount: 1,
       })
     }
+
+    _invalidateScoreAdjustment(feedback.beanVariety, feedback.roastLevel)
     _syncService()
+
+    if (currentRecommendation.value &&
+        selectedBeanVarietyForRefresh.value === feedback.beanVariety &&
+        selectedRoastLevelForRefresh.value === feedback.roastLevel) {
+      await recommend(feedback.beanVariety, feedback.roastLevel, true)
+    }
+
     return id
   }
 
@@ -305,6 +355,7 @@ export const useExtractionParamsStore = defineStore('extractionParams', () => {
     lastWeightIteration,
     currentWeights,
     weightHistory,
+    scoreAdjustments,
     totalCombinationsTested,
     totalRecords,
     avgOverallScore,
@@ -322,6 +373,8 @@ export const useExtractionParamsStore = defineStore('extractionParams', () => {
     runStressTest,
     runFullValidation,
     iterateWeights,
+    getScoreAdjustment,
+    refreshAllScoreAdjustments,
     getScatterChartData,
     getHeatmapData,
   }

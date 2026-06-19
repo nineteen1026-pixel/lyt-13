@@ -110,6 +110,108 @@ function clamp(val, min, max) {
   return Math.max(min, Math.min(max, val))
 }
 
+export function computeScoreBasedAdjustment(allRecords, beanVariety, roastLevel) {
+  const exactRecords = allRecords.filter(
+    r => r.beanVariety === beanVariety && r.roastLevel === roastLevel
+  )
+  const sameVarietyRecords = allRecords.filter(
+    r => r.beanVariety === beanVariety && r.roastLevel !== roastLevel
+  )
+
+  const workingRecords = exactRecords.length >= 3
+    ? exactRecords
+    : [...exactRecords, ...sameVarietyRecords.slice(0, 10 - exactRecords.length)]
+
+  if (workingRecords.length === 0) {
+    return {
+      hasAdjustment: false,
+      shift: { ratio: 0, temperature: 0, brewTime: 0 },
+      rangeNarrowing: 1.0,
+      confidenceModifier: 1.0,
+      avgScore: 0,
+      scoreConsistency: 0,
+      dataPoints: 0,
+      exactDataPoints: 0,
+    }
+  }
+
+  const scoreWeights = workingRecords.map(r => Math.max(0.1, r.overallScore) ** 2)
+  const totalWeight = scoreWeights.reduce((s, w) => s + w, 0) || 1
+
+  const scoreWeightedMean = (key) => {
+    return workingRecords.reduce((s, r, i) => s + r[key] * scoreWeights[i], 0) / totalWeight
+  }
+
+  const scoreWeightedStd = (key, mean) => {
+    const highScoreRecords = workingRecords.filter(r => r.overallScore >= 3.5)
+    if (highScoreRecords.length < 2) return 0
+    const hw = highScoreRecords.map(r => Math.max(0.1, r.overallScore) ** 2)
+    const ht = hw.reduce((s, w) => s + w, 0) || 1
+    const hm = highScoreRecords.reduce((s, r, i) => s + r[key] * hw[i], 0) / ht
+    const variance = highScoreRecords.reduce((s, r, i) => s + hw[i] * (r[key] - hm) ** 2, 0) / ht
+    return Math.sqrt(variance)
+  }
+
+  const avgScore = workingRecords.reduce((s, r) => s + r.overallScore, 0) / workingRecords.length
+  const scoreVariance = workingRecords.reduce(
+    (s, r) => s + (r.overallScore - avgScore) ** 2, 0
+  ) / workingRecords.length
+  const scoreStd = Math.sqrt(scoreVariance)
+  const scoreConsistency = avgScore > 0 ? Math.max(0, 1 - scoreStd / avgScore) : 0
+
+  const LEARNING_RATE = 0.35
+
+  const ratioWM = scoreWeightedMean('ratio')
+  const tempWM = scoreWeightedMean('temperature')
+  const timeWM = scoreWeightedMean('brewTime')
+
+  const ratioWS = scoreWeightedStd('ratio', ratioWM)
+  const tempWS = scoreWeightedStd('temperature', tempWM)
+  const timeWS = scoreWeightedStd('brewTime', timeWM)
+
+  const highScoreCount = workingRecords.filter(r => r.overallScore >= 4.0).length
+  const highScoreRatio = highScoreCount / workingRecords.length
+  const baseNarrowing = 1 - highScoreRatio * 0.3 * scoreConsistency
+  const rangeNarrowing = Math.max(0.5, Math.min(1.0, baseNarrowing))
+
+  const perDimNarrowing = {
+    ratio: Math.max(0.5, 1 - (ratioWS < 1 ? (1 - ratioWS) * highScoreRatio * 0.4 : 0)),
+    temperature: Math.max(0.5, 1 - (tempWS < 2 ? (1 - tempWS / 2) * highScoreRatio * 0.4 : 0)),
+    brewTime: Math.max(0.5, 1 - (timeWS < 0.5 ? (1 - timeWS * 2) * highScoreRatio * 0.4 : 0)),
+  }
+
+  let confidenceModifier = 1.0
+  if (avgScore >= 4.0) {
+    confidenceModifier = 1 + (avgScore - 4.0) * 0.15 * scoreConsistency
+  } else if (avgScore < 3.0) {
+    confidenceModifier = 1 - (3.0 - avgScore) * 0.1
+  } else {
+    confidenceModifier = 0.95 + (avgScore - 3.0) * 0.05
+  }
+  confidenceModifier = Math.max(0.7, Math.min(1.3, confidenceModifier))
+
+  const exactCount = exactRecords.length
+  const dataBoost = Math.min(0.15, exactCount * 0.02)
+  confidenceModifier = Math.min(1.3, confidenceModifier + dataBoost)
+
+  return {
+    hasAdjustment: true,
+    shift: {
+      ratio: ratioWM,
+      temperature: tempWM,
+      brewTime: timeWM,
+    },
+    learningRate: LEARNING_RATE,
+    rangeNarrowing,
+    perDimNarrowing,
+    confidenceModifier,
+    avgScore: +avgScore.toFixed(2),
+    scoreConsistency: +scoreConsistency.toFixed(3),
+    dataPoints: workingRecords.length,
+    exactDataPoints: exactCount,
+  }
+}
+
 function randomNormal(mean, std, seed) {
   const x = Math.sin(seed * 9999) * 10000
   const r1 = (x - Math.floor(x)) || 0.5
@@ -282,7 +384,7 @@ const BAYESIAN_PRIOR = {
   '混合豆': { ratio: { mean: 14, std: 2 }, temp: { mean: 93, std: 3 }, time: { mean: 3.2, std: 0.8 } },
 }
 
-export function computeRecommendation(allRecords, beanVariety, roastLevel, topK = 20, simWeights = null) {
+export function computeRecommendation(allRecords, beanVariety, roastLevel, topK = 20, simWeights = null, enableScoreAdjustment = true) {
   const beanType = getBeanType(beanVariety)
   const process = getBeanProcess(beanVariety)
 
@@ -335,6 +437,28 @@ export function computeRecommendation(allRecords, beanVariety, roastLevel, topK 
     timeStats = blendTime
   }
 
+  const scoreAdjustment = enableScoreAdjustment
+    ? computeScoreBasedAdjustment(allRecords, beanVariety, roastLevel)
+    : null
+
+  if (scoreAdjustment && scoreAdjustment.hasAdjustment) {
+    const lr = scoreAdjustment.learningRate
+    const pn = scoreAdjustment.perDimNarrowing
+
+    ratioStats = {
+      mean: ratioStats.mean * (1 - lr) + scoreAdjustment.shift.ratio * lr,
+      std: ratioStats.std * pn.ratio,
+    }
+    tempStats = {
+      mean: tempStats.mean * (1 - lr) + scoreAdjustment.shift.temperature * lr,
+      std: tempStats.std * pn.temperature,
+    }
+    timeStats = {
+      mean: timeStats.mean * (1 - lr) + scoreAdjustment.shift.brewTime * lr,
+      std: timeStats.std * pn.brewTime,
+    }
+  }
+
   const recommendRatio = +ratioStats.mean.toFixed(1)
   const ratioMin = +clamp(ratioStats.mean - ratioStats.std, 10, 18).toFixed(1)
   const ratioMax = +clamp(ratioStats.mean + ratioStats.std, 10, 18).toFixed(1)
@@ -349,10 +473,14 @@ export function computeRecommendation(allRecords, beanVariety, roastLevel, topK 
 
   const simTopK = similarCount > 0 ? topRecords.slice(0, 5).reduce((s, r) => s + r.similarity, 0) / Math.min(5, similarCount) : 0
   const avgScore = similarCount > 0 ? topRecords.reduce((s, r) => s + r.overallScore, 0) / similarCount : 0
-  const confidence = Math.round(clamp(
+  let confidence = Math.round(clamp(
     (simTopK * 0.4 + (avgScore / 5) * 0.4 + sparsePenalty * 0.2) * 100,
     40, 98
   ))
+
+  if (scoreAdjustment && scoreAdjustment.hasAdjustment) {
+    confidence = Math.round(clamp(confidence * scoreAdjustment.confidenceModifier, 40, 98))
+  }
 
   const reasons = []
   if (exactMatches.length >= 2) {
@@ -369,7 +497,18 @@ export function computeRecommendation(allRecords, beanVariety, roastLevel, topK 
   if (avgScore >= 4.2) reasons.push('历史数据评分优异')
   if (confidence >= 80) reasons.push('高置信度推荐')
 
-  return {
+  if (scoreAdjustment && scoreAdjustment.hasAdjustment) {
+    if (scoreAdjustment.exactDataPoints >= 3) {
+      reasons.push(`杯测回流修正 (${scoreAdjustment.exactDataPoints}条实评，均分${scoreAdjustment.avgScore})`)
+    } else if (scoreAdjustment.dataPoints >= 3) {
+      reasons.push(`评分修正 (${scoreAdjustment.dataPoints}条参考数据)`)
+    }
+    if (scoreAdjustment.scoreConsistency >= 0.8) {
+      reasons.push('评分一致性高，区间已收窄')
+    }
+  }
+
+  const result = {
     ratio: recommendRatio,
     ratioRange: [Math.min(ratioMin, recommendRatio - 0.3), Math.max(ratioMax, recommendRatio + 0.3)],
     temperature: tempMid,
@@ -386,6 +525,27 @@ export function computeRecommendation(allRecords, beanVariety, roastLevel, topK 
     exactMatches: exactMatches.length,
     avgHistoricalScore: avgScore > 0 ? +avgScore.toFixed(2) : 0,
   }
+
+  if (scoreAdjustment && scoreAdjustment.hasAdjustment) {
+    result.scoreAdjustment = {
+      applied: true,
+      avgScore: scoreAdjustment.avgScore,
+      scoreConsistency: scoreAdjustment.scoreConsistency,
+      confidenceModifier: +scoreAdjustment.confidenceModifier.toFixed(3),
+      rangeNarrowing: +scoreAdjustment.rangeNarrowing.toFixed(3),
+      dataPoints: scoreAdjustment.dataPoints,
+      exactDataPoints: scoreAdjustment.exactDataPoints,
+      shifts: {
+        ratio: +(scoreAdjustment.shift.ratio * scoreAdjustment.learningRate).toFixed(2),
+        temperature: +(scoreAdjustment.shift.temperature * scoreAdjustment.learningRate).toFixed(1),
+        brewTime: +(scoreAdjustment.shift.brewTime * scoreAdjustment.learningRate).toFixed(2),
+      },
+    }
+  } else {
+    result.scoreAdjustment = { applied: false }
+  }
+
+  return result
 }
 
 export function batchRunRecommendations(allRecords) {

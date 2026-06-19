@@ -150,6 +150,49 @@
       </ul>
     </div>
 
+    <div class="score-adjustment-section" v-if="recommendation.scoreAdjustment?.applied">
+      <h4>🔄 杯测评分回流修正</h4>
+      <div class="adjustment-grid">
+        <div class="adjustment-card">
+          <span class="adj-icon">📊</span>
+          <div class="adj-info">
+            <span class="adj-value">{{ recommendation.scoreAdjustment.avgScore }}</span>
+            <span class="adj-label">实际杯测均分</span>
+          </div>
+        </div>
+        <div class="adjustment-card">
+          <span class="adj-icon">🎯</span>
+          <div class="adj-info">
+            <span class="adj-value">{{ (recommendation.scoreAdjustment.scoreConsistency * 100).toFixed(0) }}%</span>
+            <span class="adj-label">评分一致性</span>
+          </div>
+        </div>
+        <div class="adjustment-card">
+          <span class="adj-icon">📐</span>
+          <div class="adj-info">
+            <span class="adj-value">{{ (recommendation.scoreAdjustment.rangeNarrowing * 100).toFixed(0) }}%</span>
+            <span class="adj-label">区间保留率</span>
+          </div>
+        </div>
+        <div class="adjustment-card">
+          <span class="adj-icon">📈</span>
+          <div class="adj-info">
+            <span :class="['adj-value', recommendation.scoreAdjustment.confidenceModifier >= 1 ? 'positive' : 'negative']">
+              {{ recommendation.scoreAdjustment.confidenceModifier >= 1 ? '+' : '' }}{{ ((recommendation.scoreAdjustment.confidenceModifier - 1) * 100).toFixed(1) }}%
+            </span>
+            <span class="adj-label">置信度修正</span>
+          </div>
+        </div>
+      </div>
+      <div class="shift-row">
+        <span class="shift-label">参数偏移:</span>
+        <span class="shift-item ratio">粉水比 {{ recommendation.scoreAdjustment.shifts.ratio > 0 ? '+' : '' }}{{ recommendation.scoreAdjustment.shifts.ratio }}</span>
+        <span class="shift-item temp">水温 {{ recommendation.scoreAdjustment.shifts.temperature > 0 ? '+' : '' }}{{ recommendation.scoreAdjustment.shifts.temperature }}℃</span>
+        <span class="shift-item time">时间 {{ recommendation.scoreAdjustment.shifts.brewTime > 0 ? '+' : '' }}{{ recommendation.scoreAdjustment.shifts.brewTime }}分</span>
+        <span class="shift-data">({{ recommendation.scoreAdjustment.exactDataPoints }}条精确 / {{ recommendation.scoreAdjustment.dataPoints }}条参考)</span>
+      </div>
+    </div>
+
     <div class="similar-section" v-if="recommendation.similarRecords?.length > 0">
       <div class="similar-header">
         <h4>🔗 历史相似数据对比</h4>
@@ -702,5 +745,106 @@ function starCount(score) {
 .feedback-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 5px 14px rgba(210, 105, 30, 0.45);
+}
+
+.score-adjustment-section {
+  padding: 14px 16px;
+  background: linear-gradient(135deg, #F0FFF4, #E6FFF0);
+  border-radius: 10px;
+  border: 1px solid #B8E0C8;
+  margin-bottom: 18px;
+}
+
+.score-adjustment-section h4 {
+  font-size: 13px;
+  color: #2E5A2E;
+  margin: 0 0 12px;
+}
+
+.adjustment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.adjustment-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #FFFCF7;
+  border-radius: 8px;
+  border: 1px solid #D4E6D4;
+}
+
+.adj-icon {
+  font-size: 22px;
+}
+
+.adj-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.adj-value {
+  font-size: 17px;
+  font-weight: 700;
+  color: #2E5A2E;
+  line-height: 1.2;
+}
+
+.adj-value.positive {
+  color: #2E8B57;
+}
+
+.adj-value.negative {
+  color: #CD5C5C;
+}
+
+.adj-label {
+  font-size: 10px;
+  color: #6F8B6F;
+}
+
+.shift-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: #F0FFF4;
+  border-radius: 6px;
+  border: 1px dashed #B8E0C8;
+  font-size: 12px;
+}
+
+.shift-label {
+  color: #3E5A3E;
+  font-weight: 600;
+}
+
+.shift-item {
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #FFFCF7;
+}
+
+.shift-item.ratio {
+  color: #2E8B57;
+}
+
+.shift-item.temp {
+  color: #CD5C5C;
+}
+
+.shift-item.time {
+  color: #4169E1;
+}
+
+.shift-data {
+  color: #8B9B8B;
+  font-size: 11px;
 }
 </style>

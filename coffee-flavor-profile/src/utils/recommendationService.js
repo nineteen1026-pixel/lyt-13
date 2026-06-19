@@ -1,5 +1,6 @@
 import {
   computeRecommendation,
+  computeScoreBasedAdjustment,
   BEAN_VARIETIES,
   ROAST_LEVELS,
   getBeanType,
@@ -99,7 +100,8 @@ export class RecommendationService {
     }
 
     const topK = options.topK || 20
-    const rec = computeRecommendation(this._records, beanVariety, roastLevel, topK, this._weights)
+    const enableScoreAdj = options.enableScoreAdjustment !== false
+    const rec = computeRecommendation(this._records, beanVariety, roastLevel, topK, this._weights, enableScoreAdj)
 
     const payload = {
       beanVariety,
@@ -133,9 +135,10 @@ export class RecommendationService {
         dataPoints: rec.dataPoints,
         exactMatches: rec.exactMatches,
         avgHistoricalScore: rec.avgHistoricalScore,
-        algoVersion: 'knn-weighted-v1',
+        algoVersion: 'knn-weighted-v2',
         weights: { ...this._weights },
         topK,
+        scoreAdjustment: rec.scoreAdjustment || { applied: false },
       },
     }
 
