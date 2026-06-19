@@ -2,9 +2,58 @@
   <div class="module-card">
     <div class="module-header">
       <h2>📜 溯源档案</h2>
+      <div class="header-actions">
+        <button class="btn btn-sm" @click="importMode = !importMode">
+          {{ importMode ? '📋 返回列表' : '📋 粘贴 JSON 查看' }}
+        </button>
+      </div>
     </div>
 
-    <div v-if="!selectedArchive" class="bean-selector">
+    <div v-if="importMode" class="import-view">
+      <p class="selector-hint">将扫码获取的溯源 JSON 粘贴到下方，即可查看完整档案</p>
+      <div class="import-box">
+        <textarea
+          v-model="importedJson"
+          class="import-textarea"
+          placeholder='例如：{"v":1,"bean":{...},"curves":[...],"roastChain":[...}'
+        ></textarea>
+        <div class="import-actions">
+          <button class="btn btn-primary btn-sm" @click="parseImportedJson" :disabled="!importedJson.trim()">📖 解析查看</button>
+          <button class="btn btn-sm" @click="importedJson = ''; importedArchive = null; importError = ''">清空</button>
+        </div>
+        <div v-if="importError" class="import-error">{{ importError }}</div>
+      </div>
+
+      <div v-if="importedArchive" class="imported-archive">
+        <div class="archive-header">
+          <div class="archive-title-row">
+            <h3 class="archive-bean-name">{{ importedArchive.bean.name }}</h3>
+            <div class="qr-data-badge">📋 导入数据</div>
+          </div>
+          <div class="archive-meta">
+            <span class="tag">{{ importedArchive.bean.origin }}</span>
+            <span class="tag">{{ importedArchive.bean.variety }}</span>
+            <span class="tag">{{ importedArchive.bean.process }}</span>
+          </div>
+          <div v-if="importedArchive.bean.flavorTags?.length" class="archive-flavors">
+            <span v-for="tag in importedArchive.bean.flavorTags" :key="tag" class="tag flavor-tag">{{ tag }}</span>
+          </div>
+          <div v-if="importedArchive.deepLinkUrl" class="archive-deeplink">
+            深度链接：<a :href="importedArchive.deepLinkUrl" target="_blank">{{ importedArchive.deepLinkUrl }}</a>
+          </div>
+        </div>
+        <div class="timeline">
+          <timeline-origin :archive="importedArchive" />
+          <timeline-curves :archive="importedArchive" />
+          <timeline-roasts :archive="importedArchive" />
+          <timeline-extractions :archive="importedArchive" />
+          <timeline-rating :archive="importedArchive" />
+          <timeline-empty :archive="importedArchive" />
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="!selectedArchive" class="bean-selector">
       <p class="selector-hint">选择一颗豆种，查看其从产地到杯中的完整溯源链</p>
       <div class="bean-cards">
         <div
@@ -45,103 +94,12 @@
       </div>
 
       <div class="timeline">
-        <div class="timeline-step origin-step">
-          <div class="step-icon">🌍</div>
-          <div class="step-content">
-            <div class="step-label">产地信息</div>
-            <div class="step-detail">
-              <div class="detail-row"><span class="detail-key">产地</span><span class="detail-val">{{ selectedArchive.bean.origin }}</span></div>
-              <div class="detail-row"><span class="detail-key">品种</span><span class="detail-val">{{ selectedArchive.bean.variety }}</span></div>
-              <div class="detail-row"><span class="detail-key">处理法</span><span class="detail-val">{{ selectedArchive.bean.process }}</span></div>
-            </div>
-          </div>
-          <div class="step-connector"></div>
-        </div>
-
-        <div v-if="selectedArchive.curves.length > 0" class="timeline-step curve-step">
-          <div class="step-icon">📈</div>
-          <div class="step-content">
-            <div class="step-label">烘焙曲线 ({{ selectedArchive.curves.length }})</div>
-            <div v-for="curve in selectedArchive.curves" :key="curve.id" class="chain-card">
-              <div class="chain-card-title">{{ curve.name }}</div>
-              <div v-if="curve.description" class="chain-card-desc">{{ curve.description }}</div>
-              <div class="chain-card-meta">{{ curve.nodes?.length || 0 }} 个温度节点</div>
-            </div>
-          </div>
-          <div class="step-connector"></div>
-        </div>
-
-        <div v-if="selectedArchive.roastChain.length > 0" class="timeline-step roast-step">
-          <div class="step-icon">🔥</div>
-          <div class="step-content">
-            <div class="step-label">烘焙记录 ({{ selectedArchive.totalRoasts }})</div>
-            <div v-for="roast in selectedArchive.roastChain" :key="roast.id" class="chain-card roast-card">
-              <div class="chain-card-header">
-                <span class="chain-card-title">{{ roast.date }}</span>
-                <span class="tag level-tag">{{ roast.level }}</span>
-                <span v-if="roast.curve" class="tag curve-tag">📈 {{ roast.curve.name }}</span>
-              </div>
-              <div class="chain-card-meta">
-                <span>{{ roast.temperature }}°C</span>
-                <span>{{ roast.duration }} min</span>
-              </div>
-              <div v-if="roast.notes" class="chain-card-notes">{{ roast.notes }}</div>
-              <div v-if="roast.extractions.length > 0" class="nested-extractions">
-                <div class="nested-label">☕ 关联萃取 ({{ roast.extractions.length }})</div>
-                <div v-for="ext in roast.extractions" :key="ext.id" class="nested-item">
-                  <span class="tag method-tag">{{ ext.method }}</span>
-                  <span class="nested-meta">{{ ext.ratio }} · {{ ext.temperature }}°C · {{ ext.time }}</span>
-                  <div v-if="ext.notes" class="nested-notes">{{ ext.notes }}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="step-connector"></div>
-        </div>
-
-        <div v-if="selectedArchive.unlinkedExtractions.length > 0" class="timeline-step extraction-step">
-          <div class="step-icon">☕</div>
-          <div class="step-content">
-            <div class="step-label">独立萃取记录 ({{ selectedArchive.unlinkedExtractions.length }})</div>
-            <div v-for="ext in selectedArchive.unlinkedExtractions" :key="ext.id" class="chain-card">
-              <div class="chain-card-header">
-                <span class="chain-card-title">{{ ext.date }}</span>
-                <span class="tag method-tag">{{ ext.method }}</span>
-              </div>
-              <div class="chain-card-meta">
-                <span v-if="ext.ratio">{{ ext.ratio }}</span>
-                <span v-if="ext.temperature">{{ ext.temperature }}°C</span>
-                <span v-if="ext.time">{{ ext.time }}</span>
-              </div>
-              <div v-if="ext.notes" class="chain-card-notes">{{ ext.notes }}</div>
-            </div>
-          </div>
-          <div class="step-connector"></div>
-        </div>
-
-        <div v-if="selectedArchive.avgRating" class="timeline-step rating-step">
-          <div class="step-icon">📊</div>
-          <div class="step-content">
-            <div class="step-label">风味评分</div>
-            <div class="rating-bars">
-              <div v-for="(val, key) in selectedArchive.avgRating" :key="key" class="rating-bar-row">
-                <span class="rating-bar-label">{{ ratingLabels[key] }}</span>
-                <div class="rating-bar-track">
-                  <div class="rating-bar-fill" :style="{ width: (val / 10 * 100) + '%' }"></div>
-                </div>
-                <span class="rating-bar-val">{{ val }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="selectedArchive.totalRoasts === 0 && selectedArchive.totalExtractions === 0" class="timeline-step empty-step">
-          <div class="step-icon">📝</div>
-          <div class="step-content">
-            <div class="step-label">暂无后续记录</div>
-            <p class="step-hint">该豆种尚无烘焙与萃取记录，请先在「烘焙记录」和「萃取日志」中添加数据</p>
-          </div>
-        </div>
+        <timeline-origin :archive="selectedArchive" />
+        <timeline-curves :archive="selectedArchive" />
+        <timeline-roasts :archive="selectedArchive" />
+        <timeline-extractions :archive="selectedArchive" />
+        <timeline-rating :archive="selectedArchive" />
+        <timeline-empty :archive="selectedArchive" />
       </div>
     </div>
 
@@ -159,7 +117,23 @@
             <span>{{ selectedArchive?.bean.process }}</span>
           </div>
           <canvas ref="qrCanvas" class="qr-canvas"></canvas>
-          <p class="qr-hint">扫描二维码即可打开完整溯源档案</p>
+          <div v-if="qrTruncated" class="qr-truncated-hint">
+            ⚠️ 数据较大，二维码内为精简数据。点击下方「复制完整数据」获取完整档案。
+          </div>
+          <p class="qr-hint">扫码即可查看溯源档案数据</p>
+          <div class="qr-url-display">
+            <div class="qr-url-label">深度链接：</div>
+            <a v-if="currentQRUrl" :href="currentQRUrl" target="_blank" class="qr-url-link">{{ currentQRUrl }}</a>
+          </div>
+          <div class="qr-action-row">
+            <button class="btn btn-sm" @click="copyFullData">📋 复制完整数据</button>
+            <button class="btn btn-sm" @click="showJsonPreview = !showJsonPreview">
+              {{ showJsonPreview ? '隐藏' : '查看' }} JSON
+            </button>
+          </div>
+          <div v-if="showJsonPreview" class="qr-json-preview">
+            <textarea readonly :value="fullQRData" class="json-textarea"></textarea>
+          </div>
           <div class="qr-summary">
             <div v-if="selectedArchive?.avgRating" class="qr-rating-summary">
               <span v-for="(val, key) in selectedArchive.avgRating" :key="key" class="qr-rating-item">
@@ -176,19 +150,8 @@
   </div>
 </template>
 
-<script setup>
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
-import QRCode from 'qrcode'
-import { useCoffeeStore } from '../stores/coffee.js'
-
-const props = defineProps({
-  initialBeanId: { type: Number, default: null },
-})
-
-const store = useCoffeeStore()
-const selectedBeanId = ref(null)
-const showQR = ref(false)
-const qrCanvas = ref(null)
+<script>
+import { h, defineComponent } from 'vue'
 
 const ratingLabels = {
   acidity: '酸质',
@@ -198,39 +161,351 @@ const ratingLabels = {
   balance: '平衡度',
 }
 
-const selectedArchive = computed(() => {
-  if (!selectedBeanId.value) return null
-  return store.getBeanTraceability(selectedBeanId.value)
+function makeStep(icon, className, label, content, showConnector = true) {
+  return h('div', { class: ['timeline-step', className] }, [
+    h('div', { class: 'step-icon' }, icon),
+    h('div', { class: 'step-content' }, [
+      h('div', { class: 'step-label' }, label),
+      content,
+    ]),
+    showConnector ? h('div', { class: 'step-connector' }) : null,
+  ])
+}
+
+const TimelineOrigin = defineComponent({
+  name: 'TimelineOrigin',
+  props: { archive: Object },
+  setup(props) {
+    return () => makeStep('🌍', 'origin-step', '产地信息',
+      h('div', { class: 'step-detail' }, [
+        h('div', { class: 'detail-row' }, [h('span', { class: 'detail-key' }, '产地'), h('span', { class: 'detail-val' }, props.archive.bean.origin)]),
+        h('div', { class: 'detail-row' }, [h('span', { class: 'detail-key' }, '品种'), h('span', { class: 'detail-val' }, props.archive.bean.variety)]),
+        h('div', { class: 'detail-row' }, [h('span', { class: 'detail-key' }, '处理法'), h('span', { class: 'detail-val' }, props.archive.bean.process)]),
+      ])
+    )
+  },
 })
 
-onMounted(() => {
-  if (props.initialBeanId) {
-    selectedBeanId.value = props.initialBeanId
-  }
+const TimelineCurves = defineComponent({
+  name: 'TimelineCurves',
+  props: { archive: Object },
+  setup(props) {
+    return () => {
+      const curves = props.archive.curves || []
+      if (!curves.length) return null
+      return makeStep('📈', 'curve-step', `烘焙曲线 (${curves.length})`,
+        curves.map(curve => h('div', { class: 'chain-card', key: curve.id }, [
+          h('div', { class: 'chain-card-title' }, curve.name),
+          curve.description ? h('div', { class: 'chain-card-desc' }, curve.description) : null,
+          h('div', { class: 'chain-card-meta' }, `${curve.nodes?.length || 0} 个温度节点`),
+        ]))
+      )
+    }
+  },
 })
 
-watch(() => props.initialBeanId, (val) => {
-  if (val) {
-    selectedBeanId.value = val
-  }
+const TimelineRoasts = defineComponent({
+  name: 'TimelineRoasts',
+  props: { archive: Object },
+  setup(props) {
+    return () => {
+      const roasts = props.archive.roastChain || []
+      if (!roasts.length) return null
+      return makeStep('🔥', 'roast-step', `烘焙记录 (${props.archive.totalRoasts || roasts.length})`,
+        roasts.map(roast => h('div', { class: 'chain-card roast-card', key: roast.id }, [
+          h('div', { class: 'chain-card-header' }, [
+            h('span', { class: 'chain-card-title' }, roast.date),
+            h('span', { class: 'tag level-tag' }, roast.level),
+            roast.curve ? h('span', { class: 'tag curve-tag' }, `📈 ${roast.curve.name}`) : null,
+          ]),
+          h('div', { class: 'chain-card-meta' }, [
+            h('span', null, `${roast.temperature}°C`),
+            h('span', null, `${roast.duration} min`),
+          ]),
+          roast.notes ? h('div', { class: 'chain-card-notes' }, roast.notes) : null,
+          roast.extractions?.length ? h('div', { class: 'nested-extractions' }, [
+            h('div', { class: 'nested-label' }, `☕ 关联萃取 (${roast.extractions.length})`),
+            ...roast.extractions.map(ext => h('div', { class: 'nested-item', key: ext.id }, [
+              h('span', { class: 'tag method-tag' }, ext.method),
+              h('span', { class: 'nested-meta' }, `${ext.ratio} · ${ext.temperature}°C · ${ext.time}`),
+              ext.notes ? h('div', { class: 'nested-notes' }, ext.notes) : null,
+            ])),
+          ]) : null,
+        ]))
+      )
+    }
+  },
 })
 
-watch(showQR, async (val) => {
-  if (val && selectedBeanId.value) {
-    await nextTick()
-    const url = store.buildQRUrl(selectedBeanId.value)
-    if (url && qrCanvas.value) {
-      QRCode.toCanvas(qrCanvas.value, url, {
-        width: 220,
-        margin: 2,
-        color: { dark: '#3E2C1C', light: '#FFFDF9' },
+const TimelineExtractions = defineComponent({
+  name: 'TimelineExtractions',
+  props: { archive: Object },
+  setup(props) {
+    return () => {
+      const exts = props.archive.unlinkedExtractions || []
+      if (!exts.length) return null
+      return makeStep('☕', 'extraction-step', `独立萃取记录 (${exts.length})`,
+        exts.map(ext => h('div', { class: 'chain-card', key: ext.id }, [
+          h('div', { class: 'chain-card-header' }, [
+            h('span', { class: 'chain-card-title' }, ext.date),
+            h('span', { class: 'tag method-tag' }, ext.method),
+          ]),
+          h('div', { class: 'chain-card-meta' }, [
+            ext.ratio ? h('span', null, ext.ratio) : null,
+            ext.temperature ? h('span', null, `${ext.temperature}°C`) : null,
+            ext.time ? h('span', null, ext.time) : null,
+          ]),
+          ext.notes ? h('div', { class: 'chain-card-notes' }, ext.notes) : null,
+        ]))
+      )
+    }
+  },
+})
+
+const TimelineRating = defineComponent({
+  name: 'TimelineRating',
+  props: { archive: Object },
+  setup(props) {
+    return () => {
+      const rating = props.archive.avgRating
+      if (!rating) return null
+      return makeStep('📊', 'rating-step', '风味评分',
+        h('div', { class: 'rating-bars' },
+          Object.entries(rating).map(([key, val]) => h('div', { class: 'rating-bar-row', key }, [
+            h('span', { class: 'rating-bar-label' }, ratingLabels[key]),
+            h('div', { class: 'rating-bar-track' }, [
+              h('div', { class: 'rating-bar-fill', style: { width: `${(val / 10 * 100)}%` } }),
+            ]),
+            h('span', { class: 'rating-bar-val' }, String(val)),
+          ]))
+        ),
+        false
+      )
+    }
+  },
+})
+
+const TimelineEmpty = defineComponent({
+  name: 'TimelineEmpty',
+  props: { archive: Object },
+  setup(props) {
+    return () => {
+      const hasAny = (props.archive.totalRoasts || (props.archive.roastChain?.length) || (props.archive.totalExtractions) || (props.archive.unlinkedExtractions?.length))
+      if (hasAny) return null
+      return makeStep('📝', 'empty-step', '暂无后续记录',
+        h('p', { class: 'step-hint' }, '该豆种尚无烘焙与萃取记录'),
+        false
+      )
+    }
+  },
+})
+
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import QRCode from 'qrcode'
+import { useCoffeeStore } from '../stores/coffee.js'
+
+export default {
+  components: { TimelineOrigin, TimelineCurves, TimelineRoasts, TimelineExtractions, TimelineRating, TimelineEmpty },
+  props: {
+    initialBeanId: { type: Number, default: null },
+  },
+  setup(props) {
+    const store = useCoffeeStore()
+
+    const selectedBeanId = ref(null)
+    const importMode = ref(false)
+    const importedJson = ref('')
+    const importedArchive = ref(null)
+    const importError = ref('')
+    const showQR = ref(false)
+    const showJsonPreview = ref(false)
+    const qrCanvas = ref(null)
+    const qrTruncated = ref(false)
+
+    const selectedArchive = computed(() => {
+      if (!selectedBeanId.value) return null
+      return store.getBeanTraceability(selectedBeanId.value)
+    })
+
+    const fullQRData = computed(() => {
+      if (!selectedArchive.value) return ''
+      return store.buildQRPayload(selectedBeanId.value)
+    })
+
+    const currentQRUrl = computed(() => {
+      if (selectedBeanId.value) return store.buildQRUrl(selectedBeanId.value)
+      return null
+    })
+
+    onMounted(() => {
+      if (props.initialBeanId) {
+        selectedBeanId.value = props.initialBeanId
+      }
+    })
+
+    watch(() => props.initialBeanId, (val) => {
+      if (val) {
+        selectedBeanId.value = val
+      }
+    })
+
+    function parseImportedJson() {
+      importError.value = ''
+      importedArchive.value = null
+      const result = store.parseQRPayload(importedJson.value)
+      if (!result) {
+        importError.value = '解析失败：请粘贴有效的溯源 JSON 数据'
+        return
+      }
+      importedArchive.value = result
+    }
+
+    function getCompactQRData() {
+      const archive = selectedArchive.value
+      if (!archive) return ''
+      return JSON.stringify({
+        v: 1,
+        compact: true,
+        deepLinkUrl: currentQRUrl.value,
+        bean: archive.bean,
+        avgRating: archive.avgRating,
+        totalRoasts: archive.totalRoasts,
+        totalExtractions: archive.totalExtractions,
+        curves: (archive.curves || []).map(c => ({
+          id: c.id, name: c.name, description: c.description, nodeCount: c.nodes?.length,
+        })),
+        roastChain: (archive.roastChain || []).map(r => ({
+          id: r.id, date: r.date, level: r.level, temperature: r.temperature,
+          duration: r.duration, notes: r.notes,
+          curve: r.curve ? { name: r.curve.name } : null,
+          extractions: (r.extractions || []).map(e => ({
+            id: e.id, date: e.date, method: e.method, ratio: e.ratio,
+            temperature: e.temperature, time: e.time, notes: e.notes,
+          })),
+        })),
+        unlinkedExtractions: (archive.unlinkedExtractions || []).map(e => ({
+          id: e.id, date: e.date, method: e.method, ratio: e.ratio,
+          temperature: e.temperature, time: e.time, notes: e.notes,
+        })),
       })
     }
-  }
-})
+
+    watch(showQR, async (val) => {
+      if (val && selectedBeanId.value) {
+        await nextTick()
+        showJsonPreview.value = false
+        qrTruncated.value = false
+        let data = fullQRData.value
+        if (!data) return
+        try {
+          await QRCode.toCanvas(qrCanvas.value, data, {
+            width: 220,
+            margin: 2,
+            errorCorrectionLevel: 'L',
+            color: { dark: '#3E2C1C', light: '#FFFDF9' },
+          })
+        } catch (e) {
+          qrTruncated.value = true
+          const compact = getCompactQRData()
+          try {
+            await QRCode.toCanvas(qrCanvas.value, compact, {
+              width: 220,
+              margin: 2,
+              errorCorrectionLevel: 'L',
+              color: { dark: '#3E2C1C', light: '#FFFDF9' },
+            })
+          } catch (e2) {
+            try {
+              await QRCode.toCanvas(qrCanvas.value, currentQRUrl.value || '', {
+                width: 220,
+                margin: 2,
+                errorCorrectionLevel: 'L',
+                color: { dark: '#3E2C1C', light: '#FFFDF9' },
+              })
+            } catch (e3) {}
+          }
+        }
+      }
+    })
+
+    async function copyFullData() {
+      const data = fullQRData.value
+      if (!data) return
+      try {
+        await navigator.clipboard.writeText(data)
+        alert('完整溯源数据已复制到剪贴板')
+      } catch (e) {
+        alert('复制失败，请手动从 JSON 预览框复制')
+        showJsonPreview.value = true
+      }
+    }
+
+    return {
+      store,
+      selectedBeanId,
+      importMode,
+      importedJson,
+      importedArchive,
+      importError,
+      selectedArchive,
+      showQR,
+      showJsonPreview,
+      qrCanvas,
+      qrTruncated,
+      ratingLabels,
+      fullQRData,
+      currentQRUrl,
+      parseImportedJson,
+      copyFullData,
+    }
+  },
+}
 </script>
 
 <style scoped>
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+.import-view {
+  padding: 10px 0;
+}
+.import-box {
+  background: #FFF8F0;
+  border: 2px solid #EDE0D0;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+.import-textarea {
+  width: 100%;
+  min-height: 140px;
+  font-family: monospace;
+  font-size: 12px;
+  padding: 10px;
+  border: 1px solid #E0D0B8;
+  border-radius: 8px;
+  background: #FFFDF9;
+  color: #3E2C1C;
+  resize: vertical;
+  margin-bottom: 10px;
+}
+.import-textarea:focus {
+  outline: none;
+  border-color: #6F4E37;
+}
+.import-actions {
+  display: flex;
+  gap: 8px;
+}
+.import-error {
+  margin-top: 10px;
+  color: #D84315;
+  font-size: 13px;
+}
+.imported-archive {
+  margin-bottom: 16px;
+}
 .bean-selector {
   text-align: center;
   padding: 10px 0;
@@ -309,10 +584,30 @@ watch(showQR, async (val) => {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.archive-deeplink {
+  font-size: 12px;
+  color: #6F4E37;
+  margin-top: 6px;
+  word-break: break-all;
+}
+.archive-deeplink a {
+  color: #6F4E37;
+  text-decoration: underline;
 }
 .flavor-tag {
   background: linear-gradient(135deg, #FFF0E0, #FFE0C0);
   color: #8B4513;
+}
+.qr-data-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  background: #F3E5F5;
+  color: #6A1B9A;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
 }
 .timeline {
   position: relative;
@@ -528,6 +823,8 @@ watch(showQR, async (val) => {
   max-width: 400px;
   width: 100%;
   box-shadow: 0 8px 32px rgba(62, 44, 28, 0.25);
+  max-height: 92vh;
+  overflow-y: auto;
 }
 .qr-modal-header {
   display: flex;
@@ -535,11 +832,16 @@ watch(showQR, async (val) => {
   align-items: center;
   padding: 18px 24px;
   border-bottom: 1px solid #EDE0D0;
+  position: sticky;
+  top: 0;
+  background: #FFFDF9;
+  z-index: 1;
 }
 .qr-modal-header h3 {
   font-size: 18px;
   font-weight: 600;
   color: #3E2C1C;
+  margin: 0;
 }
 .qr-modal-body {
   padding: 24px;
@@ -556,7 +858,7 @@ watch(showQR, async (val) => {
   gap: 6px;
   justify-content: center;
   flex-wrap: wrap;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   font-size: 13px;
   color: #8B7355;
 }
@@ -567,13 +869,72 @@ watch(showQR, async (val) => {
 }
 .qr-canvas {
   display: block;
-  margin: 0 auto 16px;
+  margin: 0 auto 6px;
   border-radius: 8px;
+}
+.qr-truncated-hint {
+  font-size: 11px;
+  color: #D84315;
+  background: #FBE9E7;
+  padding: 6px 10px;
+  border-radius: 8px;
+  margin-bottom: 6px;
 }
 .qr-hint {
   font-size: 12px;
   color: #A08968;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
+}
+.qr-url-display {
+  margin-bottom: 12px;
+  text-align: left;
+  background: #FFF8F0;
+  border: 1px solid #EDE0D0;
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.qr-url-label {
+  font-size: 11px;
+  color: #8B7355;
+  margin-bottom: 2px;
+}
+.qr-url-link {
+  font-size: 11px;
+  color: #6F4E37;
+  word-break: break-all;
+  text-decoration: underline;
+}
+.qr-url-link:hover {
+  color: #3E2C1C;
+}
+.qr-action-row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+.qr-action-row .btn-sm {
+  background: #FFF8F0;
+  border: 1px solid #D2B48C;
+  color: #6F4E37;
+}
+.qr-action-row .btn-sm:hover {
+  background: #F0E0D0;
+}
+.qr-json-preview {
+  margin-bottom: 14px;
+}
+.json-textarea {
+  width: 100%;
+  height: 140px;
+  font-family: monospace;
+  font-size: 11px;
+  padding: 8px;
+  border: 1px solid #EDE0D0;
+  border-radius: 8px;
+  background: #FFFDF9;
+  color: #3E2C1C;
+  resize: vertical;
 }
 .qr-summary {
   text-align: left;

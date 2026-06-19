@@ -130,8 +130,24 @@ export const useCoffeeStore = defineStore('coffee', () => {
     return `${base}#/traceability/${beanId}`
   }
 
-  function buildQRPayload(beanId) {
-    return buildQRUrl(beanId)
+  function buildQRPayload(beanId, snapshotOverride = null) {
+    const archive = snapshotOverride || getBeanTraceability(beanId)
+    if (!archive) return null
+    const cleanArchive = JSON.parse(JSON.stringify(archive))
+    if (!cleanArchive.v) cleanArchive.v = 1
+    if (!cleanArchive.deepLinkUrl) {
+      cleanArchive.deepLinkUrl = buildQRUrl(beanId)
+    }
+    return JSON.stringify(cleanArchive)
+  }
+
+  function parseQRPayload(text) {
+    if (!text) return null
+    try {
+      const obj = JSON.parse(text)
+      if (obj && (obj.bean || obj.v)) return obj
+    } catch (e) {}
+    return null
   }
 
   async function loadAll() {
@@ -270,6 +286,6 @@ export const useCoffeeStore = defineStore('coffee', () => {
     addRating, deleteRating,
     addCuppingComparison, updateCuppingComparison, deleteCuppingComparison,
     addRoastCurve, updateRoastCurve, deleteRoastCurve,
-    getBeanTraceability, buildQRPayload, buildQRUrl,
+    getBeanTraceability, buildQRPayload, buildQRUrl, parseQRPayload,
   }
 })

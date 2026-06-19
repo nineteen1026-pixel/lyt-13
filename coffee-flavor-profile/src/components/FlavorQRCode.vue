@@ -9,7 +9,9 @@
         <div class="qr-order-info">
           <div class="qr-order-no">订单号: {{ orderNo }}</div>
           <div class="qr-customer">{{ customerName }}</div>
-          <div v-if="generatedAt" class="qr-generated">生成于 {{ formatTime(generatedAt) }}</div>
+          <div v-if="generatedAt" class="qr-generated">核销于 {{ formatTime(generatedAt) }}</div>
+          <div v-if="usingSnapshot" class="qr-data-badge">📸 快照数据（核销时封存）</div>
+          <div v-else class="qr-data-badge qr-data-badge-live">⚡ 实时数据</div>
         </div>
 
         <div class="qr-tabs">
@@ -34,10 +36,25 @@
           </div>
 
           <canvas ref="qrCanvas" class="qr-canvas"></canvas>
+          <div v-if="qrTruncated" class="qr-truncated-hint">
+            ⚠️ 数据较大，二维码内为精简数据。点击下方「复制完整数据」获取完整档案。
+          </div>
+          <p class="qr-scan-hint">扫码即可查看溯源档案数据</p>
 
-          <p class="qr-scan-hint">扫码即可打开完整溯源档案</p>
-          <div v-if="currentQRUrl" class="qr-url-display">
-            <a :href="currentQRUrl" target="_blank" class="qr-url-link">{{ currentQRUrl }}</a>
+          <div class="qr-url-display">
+            <div class="qr-url-label">深度链接（同设备可直接跳转）：</div>
+            <a v-if="currentQRUrl" :href="currentQRUrl" target="_blank" class="qr-url-link">{{ currentQRUrl }}</a>
+          </div>
+
+          <div class="qr-action-row">
+            <button class="btn btn-sm" @click="copyFullData">📋 复制完整数据</button>
+            <button class="btn btn-sm" @click="showJsonPreview = !showJsonPreview">
+              {{ showJsonPreview ? '隐藏' : '查看' }} JSON
+            </button>
+          </div>
+
+          <div v-if="showJsonPreview" class="qr-json-preview">
+            <textarea readonly :value="fullQRData" class="json-textarea"></textarea>
           </div>
 
           <div v-if="currentArchive.bean.flavorTags?.length" class="qr-flavor-section">
@@ -59,16 +76,51 @@
 
           <div class="qr-chain-summary">
             <div class="chain-stat">
-              <span class="chain-stat-val">{{ currentArchive.totalRoasts }}</span>
+              <span class="chain-stat-val">{{ currentArchive.curves?.length || 0 }}</span>
+              <span class="chain-stat-label">曲线</span>
+            </div>
+            <div class="chain-stat">
+              <span class="chain-stat-val">{{ currentArchive.totalRoasts || 0 }}</span>
               <span class="chain-stat-label">烘焙</span>
             </div>
             <div class="chain-stat">
-              <span class="chain-stat-val">{{ currentArchive.totalExtractions }}</span>
+              <span class="chain-stat-val">{{ currentArchive.totalExtractions || 0 }}</span>
               <span class="chain-stat-label">萃取</span>
             </div>
-            <div class="chain-stat">
-              <span class="chain-stat-val">{{ currentArchive.curves.length }}</span>
-              <span class="chain-stat-label">曲线</span>
+          </div>
+
+          <div v-if="currentArchive.curves?.length" class="qr-detail-section">
+            <div class="qr-section-label">烘焙曲线</div>
+            <div v-for="curve in currentArchive.curves" :key="curve.id" class="qr-detail-card">
+              <div class="detail-card-title">📈 {{ curve.name }}</div>
+              <div v-if="curve.description" class="detail-card-desc">{{ curve.description }}</div>
+              <div class="detail-card-meta">{{ curve.nodes?.length || 0 }} 个温度节点</div>
+            </div>
+          </div>
+
+          <div v-if="currentArchive.roastChain?.length" class="qr-detail-section">
+            <div class="qr-section-label">烘焙记录</div>
+            <div v-for="roast in currentArchive.roastChain" :key="roast.id" class="qr-detail-card">
+              <div class="detail-card-title">🔥 {{ roast.date }} · {{ roast.level }}</div>
+              <div class="detail-card-meta">{{ roast.temperature }}°C · {{ roast.duration }} min</div>
+              <div v-if="roast.curve?.name" class="detail-card-meta">曲线：{{ roast.curve.name }}</div>
+              <div v-if="roast.notes" class="detail-card-notes">{{ roast.notes }}</div>
+              <div v-if="roast.extractions?.length" class="detail-nested">
+                <div v-for="ext in roast.extractions" :key="ext.id" class="nested-row">
+                  <span class="nested-method">☕ {{ ext.method }}</span>
+                  <span class="nested-meta">{{ ext.ratio }} · {{ ext.temperature }}°C · {{ ext.time }}</span>
+                  <div v-if="ext.notes" class="nested-notes">{{ ext.notes }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="currentArchive.unlinkedExtractions?.length" class="qr-detail-section">
+            <div class="qr-section-label">独立萃取记录</div>
+            <div v-for="ext in currentArchive.unlinkedExtractions" :key="ext.id" class="qr-detail-card">
+              <div class="detail-card-title">☕ {{ ext.date }} · {{ ext.method }}</div>
+              <div class="detail-card-meta">{{ ext.ratio }} · {{ ext.temperature }}°C · {{ ext.time }}</div>
+              <div v-if="ext.notes" class="detail-card-notes">{{ ext.notes }}</div>
             </div>
           </div>
         </div>
@@ -99,6 +151,8 @@ const emit = defineEmits(['close'])
 
 const qrCanvas = ref(null)
 const activeBeanId = ref(null)
+const showJsonPreview = ref(false)
+const qrTruncated = ref(false)
 
 const ratingLabels = {
   acidity: '酸质',
@@ -125,40 +179,131 @@ const generatedAt = computed(() => {
   return null
 })
 
-const currentQRUrl = computed(() => {
-  if (!activeBeanId.value) return null
-  if (props.persistedQRCodes.length > 0) {
-    const qr = props.persistedQRCodes.find(q => q.beanId === activeBeanId.value)
-    if (qr) return qr.qrUrl
+const usingSnapshot = computed(() => {
+  return props.persistedQRCodes.length > 0
+})
+
+function parseSnapshot(qrRecord) {
+  if (!qrRecord || !qrRecord.snapshot) return null
+  try {
+    return JSON.parse(qrRecord.snapshot)
+  } catch (e) {
+    return null
   }
-  return store.buildQRUrl(activeBeanId.value)
+}
+
+const currentPersistedQR = computed(() => {
+  if (!activeBeanId.value || props.persistedQRCodes.length === 0) return null
+  return props.persistedQRCodes.find(q => q.beanId === activeBeanId.value) || null
 })
 
 const currentArchive = computed(() => {
   if (!activeBeanId.value) return null
+  const persisted = currentPersistedQR.value
+  if (persisted) {
+    const snap = parseSnapshot(persisted)
+    if (snap) return snap
+  }
   return store.getBeanTraceability(activeBeanId.value)
 })
+
+const fullQRData = computed(() => {
+  if (!activeBeanId.value) return ''
+  const persisted = currentPersistedQR.value
+  if (persisted && persisted.qrData) {
+    return persisted.qrData
+  }
+  const archive = currentArchive.value
+  if (archive) {
+    return JSON.stringify(archive)
+  }
+  return ''
+})
+
+const currentQRUrl = computed(() => {
+  const persisted = currentPersistedQR.value
+  if (persisted && persisted.qrUrl) return persisted.qrUrl
+  if (activeBeanId.value) return store.buildQRUrl(activeBeanId.value)
+  return null
+})
+
+function getCompactQRData() {
+  const archive = currentArchive.value
+  if (!archive) return ''
+  const compact = {
+    v: 1,
+    compact: true,
+    deepLinkUrl: currentQRUrl.value,
+    bean: archive.bean,
+    avgRating: archive.avgRating,
+    totalRoasts: archive.totalRoasts,
+    totalExtractions: archive.totalExtractions,
+    curves: (archive.curves || []).map(c => ({
+      id: c.id, name: c.name, description: c.description, nodeCount: c.nodes?.length,
+    })),
+    roastChain: (archive.roastChain || []).map(r => ({
+      id: r.id, date: r.date, level: r.level, temperature: r.temperature,
+      duration: r.duration, notes: r.notes,
+      curve: r.curve ? { name: r.curve.name } : null,
+      extractions: (r.extractions || []).map(e => ({
+        id: e.id, date: e.date, method: e.method, ratio: e.ratio,
+        temperature: e.temperature, time: e.time, notes: e.notes,
+      })),
+    })),
+    unlinkedExtractions: (archive.unlinkedExtractions || []).map(e => ({
+      id: e.id, date: e.date, method: e.method, ratio: e.ratio,
+      temperature: e.temperature, time: e.time, notes: e.notes,
+    })),
+  }
+  return JSON.stringify(compact)
+}
 
 watch(() => props.visible, async (val) => {
   if (val && displayItems.value.length > 0) {
     activeBeanId.value = displayItems.value[0].beanId
+    showJsonPreview.value = false
     await renderQR()
   }
 })
 
 watch(activeBeanId, async () => {
+  showJsonPreview.value = false
   await renderQR()
 })
 
 async function renderQR() {
   await nextTick()
-  const url = currentQRUrl.value
-  if (url && qrCanvas.value) {
-    QRCode.toCanvas(qrCanvas.value, url, {
+  if (!qrCanvas.value) return
+  qrTruncated.value = false
+  let data = fullQRData.value
+  if (!data) return
+  try {
+    await QRCode.toCanvas(qrCanvas.value, data, {
       width: 200,
       margin: 2,
+      errorCorrectionLevel: 'L',
       color: { dark: '#3E2C1C', light: '#FFFDF9' },
     })
+  } catch (e) {
+    qrTruncated.value = true
+    const compact = getCompactQRData()
+    try {
+      await QRCode.toCanvas(qrCanvas.value, compact, {
+        width: 200,
+        margin: 2,
+        errorCorrectionLevel: 'L',
+        color: { dark: '#3E2C1C', light: '#FFFDF9' },
+      })
+    } catch (e2) {
+      try {
+        await QRCode.toCanvas(qrCanvas.value, currentQRUrl.value || '', {
+          width: 200,
+          margin: 2,
+          errorCorrectionLevel: 'L',
+          color: { dark: '#3E2C1C', light: '#FFFDF9' },
+        })
+      } catch (e3) {}
+    }
   }
 }
 
@@ -169,6 +314,18 @@ function switchBean(beanId) {
 function formatTime(iso) {
   if (!iso) return ''
   return new Date(iso).toLocaleString()
+}
+
+async function copyFullData() {
+  const data = fullQRData.value
+  if (!data) return
+  try {
+    await navigator.clipboard.writeText(data)
+    alert('完整溯源数据已复制到剪贴板')
+  } catch (e) {
+    alert('复制失败，请手动从 JSON 预览框复制')
+    showJsonPreview.value = true
+  }
 }
 
 function close() {
@@ -193,10 +350,10 @@ function close() {
 .qr-modal {
   background: #FFFDF9;
   border-radius: 16px;
-  max-width: 420px;
+  max-width: 460px;
   width: 100%;
   box-shadow: 0 8px 32px rgba(62, 44, 28, 0.25);
-  max-height: 90vh;
+  max-height: 92vh;
   overflow-y: auto;
 }
 .qr-modal-header {
@@ -205,6 +362,10 @@ function close() {
   align-items: center;
   padding: 18px 24px;
   border-bottom: 1px solid #EDE0D0;
+  position: sticky;
+  top: 0;
+  background: #FFFDF9;
+  z-index: 1;
 }
 .qr-modal-header h3 {
   font-size: 17px;
@@ -231,6 +392,20 @@ function close() {
   font-size: 11px;
   color: #A08968;
   margin-top: 2px;
+}
+.qr-data-badge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 10px;
+  background: #E8F5E9;
+  color: #2E7D32;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.qr-data-badge-live {
+  background: #FFF3E0;
+  color: #E65100;
 }
 .qr-tabs {
   display: flex;
@@ -284,16 +459,34 @@ function close() {
 }
 .qr-canvas {
   display: block;
-  margin: 0 auto 10px;
+  margin: 0 auto 6px;
   border-radius: 8px;
+}
+.qr-truncated-hint {
+  font-size: 11px;
+  color: #D84315;
+  background: #FBE9E7;
+  padding: 6px 10px;
+  border-radius: 8px;
+  margin-bottom: 6px;
 }
 .qr-scan-hint {
   font-size: 12px;
   color: #A08968;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
 }
 .qr-url-display {
-  margin-bottom: 16px;
+  margin-bottom: 12px;
+  text-align: left;
+  background: #FFF8F0;
+  border: 1px solid #EDE0D0;
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.qr-url-label {
+  font-size: 11px;
+  color: #8B7355;
+  margin-bottom: 2px;
 }
 .qr-url-link {
   font-size: 11px;
@@ -304,20 +497,51 @@ function close() {
 .qr-url-link:hover {
   color: #3E2C1C;
 }
+.qr-action-row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+.qr-action-row .btn-sm {
+  background: #FFF8F0;
+  border: 1px solid #D2B48C;
+  color: #6F4E37;
+}
+.qr-action-row .btn-sm:hover {
+  background: #F0E0D0;
+}
+.qr-json-preview {
+  margin-bottom: 14px;
+}
+.json-textarea {
+  width: 100%;
+  height: 160px;
+  font-family: monospace;
+  font-size: 11px;
+  padding: 8px;
+  border: 1px solid #EDE0D0;
+  border-radius: 8px;
+  background: #FFFDF9;
+  color: #3E2C1C;
+  resize: vertical;
+}
 .qr-section-label {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   color: #6F4E37;
   margin-bottom: 8px;
+  text-align: left;
 }
 .qr-flavor-section {
   margin-bottom: 14px;
+  text-align: left;
 }
 .qr-flavor-tags {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: flex-start;
 }
 .flavor-dot {
   display: inline-block;
@@ -330,11 +554,12 @@ function close() {
 }
 .qr-rating-section {
   margin-bottom: 14px;
+  text-align: left;
 }
 .qr-rating-grid {
   display: flex;
   gap: 6px;
-  justify-content: center;
+  justify-content: flex-start;
   flex-wrap: wrap;
 }
 .qr-rating-chip {
@@ -358,8 +583,10 @@ function close() {
   display: flex;
   gap: 16px;
   justify-content: center;
-  padding-top: 12px;
+  padding: 12px 0;
+  margin-bottom: 14px;
   border-top: 1px dashed #EDE0D0;
+  border-bottom: 1px dashed #EDE0D0;
 }
 .chain-stat {
   text-align: center;
@@ -373,6 +600,63 @@ function close() {
 .chain-stat-label {
   font-size: 11px;
   color: #A08968;
+}
+.qr-detail-section {
+  margin-bottom: 14px;
+  text-align: left;
+}
+.qr-detail-card {
+  background: #FFF8F0;
+  border: 1px solid #EDE0D0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+}
+.detail-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #3E2C1C;
+  margin-bottom: 2px;
+}
+.detail-card-desc {
+  font-size: 12px;
+  color: #8B7355;
+  font-style: italic;
+  margin-bottom: 2px;
+}
+.detail-card-meta {
+  font-size: 12px;
+  color: #A08968;
+}
+.detail-card-notes {
+  font-size: 12px;
+  color: #6F4E37;
+  font-style: italic;
+  margin-top: 2px;
+}
+.detail-nested {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #E0D0B8;
+}
+.nested-row {
+  padding: 4px 0;
+}
+.nested-method {
+  font-size: 12px;
+  font-weight: 500;
+  color: #6F4E37;
+}
+.nested-meta {
+  font-size: 12px;
+  color: #A08968;
+  margin-left: 6px;
+}
+.nested-notes {
+  font-size: 11px;
+  color: #8B7355;
+  font-style: italic;
+  margin-top: 1px;
 }
 .qr-empty {
   text-align: center;

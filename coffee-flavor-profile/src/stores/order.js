@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import db from '../db.js'
 import { useInventoryStore } from './inventory.js'
 import { usePromotionStore } from './promotion.js'
+import { useCoffeeStore } from './coffee.js'
 
 export const ORDER_STATUS = {
   PENDING_DEPOSIT: 'pending_deposit',
@@ -469,23 +470,36 @@ export const useOrderStore = defineStore('order', () => {
     const existing = orderQRCodes.value.filter(q => q.orderId === orderId)
     if (existing.length > 0) return existing
 
+    const coffeeStore = useCoffeeStore()
     const items = orderItems.value.filter(i => i.orderId === orderId)
     const now = new Date()
-    const base = window.location.origin + window.location.pathname
     const saved = []
 
     for (const item of items) {
-      const qrUrl = `${base}#/traceability/${item.beanId}`
+      const archive = coffeeStore.getBeanTraceability(item.beanId)
       const snapshot = {
-        beanName: item.beanName,
-        beanId: item.beanId,
-        quantity: item.quantity,
+        v: 1,
+        bean: archive?.bean || {
+          id: item.beanId,
+          name: item.beanName,
+          origin: '',
+          variety: '',
+          process: '',
+          flavorTags: [],
+        },
+        curves: archive?.curves || [],
+        roastChain: archive?.roastChain || [],
+        unlinkedExtractions: archive?.unlinkedExtractions || [],
+        avgRating: archive?.avgRating || null,
+        totalRoasts: archive?.totalRoasts || 0,
+        totalExtractions: archive?.totalExtractions || 0,
       }
       const record = {
         orderId,
         beanId: item.beanId,
         beanName: item.beanName,
-        qrUrl,
+        qrUrl: coffeeStore.buildQRUrl(item.beanId),
+        qrData: coffeeStore.buildQRPayload(item.beanId, snapshot),
         snapshot: JSON.stringify(snapshot),
         generatedAt: now.toISOString(),
         createdAt: now.toISOString(),
