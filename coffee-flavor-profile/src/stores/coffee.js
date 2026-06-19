@@ -80,6 +80,69 @@ export const useCoffeeStore = defineStore('coffee', () => {
     })
   })
 
+  const traceabilityArchives = computed(() => {
+    return beans.value.map(bean => {
+      const beanRoasts = roasts.value.filter(r => r.beanId === bean.id)
+      const beanExtractions = extractions.value.filter(e => e.beanId === bean.id)
+      const beanRatings = ratings.value.filter(r => r.beanId === bean.id)
+      const beanCurves = roastCurves.value.filter(c => c.beanId === bean.id)
+
+      const roastChain = beanRoasts.map(roast => {
+        const curve = roastCurves.value.find(c => c.id === roast.curveId)
+        const roastExtractions = beanExtractions.filter(e => e.roastId === roast.id)
+        return {
+          ...roast,
+          curve: curve || null,
+          extractions: roastExtractions,
+        }
+      })
+
+      const unlinkedExtractions = beanExtractions.filter(e => !e.roastId || !beanRoasts.find(r => r.id === e.roastId))
+
+      const avgRating = beanRatings.length > 0
+        ? {
+            acidity: +(beanRatings.reduce((s, r) => s + r.acidity, 0) / beanRatings.length).toFixed(1),
+            sweetness: +(beanRatings.reduce((s, r) => s + r.sweetness, 0) / beanRatings.length).toFixed(1),
+            body: +(beanRatings.reduce((s, r) => s + r.body, 0) / beanRatings.length).toFixed(1),
+            aftertaste: +(beanRatings.reduce((s, r) => s + r.aftertaste, 0) / beanRatings.length).toFixed(1),
+            balance: +(beanRatings.reduce((s, r) => s + r.balance, 0) / beanRatings.length).toFixed(1),
+          }
+        : null
+
+      return {
+        bean,
+        curves: beanCurves,
+        roastChain,
+        unlinkedExtractions,
+        avgRating,
+        totalRoasts: beanRoasts.length,
+        totalExtractions: beanExtractions.length,
+      }
+    })
+  })
+
+  function getBeanTraceability(beanId) {
+    return traceabilityArchives.value.find(a => a.bean.id === beanId) || null
+  }
+
+  function buildQRPayload(beanId) {
+    const archive = getBeanTraceability(beanId)
+    if (!archive) return null
+    const { bean, avgRating, totalRoasts, totalExtractions } = archive
+    const payload = {
+      n: bean.name,
+      o: bean.origin,
+      v: bean.variety,
+      p: bean.process,
+      f: bean.flavorTags || [],
+      r: avgRating,
+      rc: totalRoasts,
+      ec: totalExtractions,
+      t: new Date().toISOString().slice(0, 10),
+    }
+    return JSON.stringify(payload)
+  }
+
   async function loadAll() {
     beans.value = await db.beans.toArray()
     roasts.value = await db.roasts.toArray()
@@ -208,6 +271,7 @@ export const useCoffeeStore = defineStore('coffee', () => {
   return {
     beans, roasts, extractions, ratings, cuppingComparisons, roastCurves,
     beansWithDetails, cuppingComparisonsWithDetails, roastCurvesWithDetails,
+    traceabilityArchives,
     loadAll,
     addBean, deleteBean,
     addRoast, deleteRoast,
@@ -215,5 +279,6 @@ export const useCoffeeStore = defineStore('coffee', () => {
     addRating, deleteRating,
     addCuppingComparison, updateCuppingComparison, deleteCuppingComparison,
     addRoastCurve, updateRoastCurve, deleteRoastCurve,
+    getBeanTraceability, buildQRPayload,
   }
 })

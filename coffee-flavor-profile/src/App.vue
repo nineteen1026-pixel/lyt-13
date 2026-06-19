@@ -28,6 +28,7 @@
       <InventoryManagement v-if="activeTab === 'inventory'" />
       <PromotionManagement v-if="activeTab === 'promotion'" />
       <OrderManagement v-if="activeTab === 'order'" />
+      <BeanTraceability v-if="activeTab === 'traceability'" />
     </div>
   </div>
 </template>
@@ -45,11 +46,13 @@ import ExtractionRecommendation from './components/ExtractionRecommendation.vue'
 import InventoryManagement from './components/InventoryManagement.vue'
 import PromotionManagement from './components/PromotionManagement.vue'
 import OrderManagement from './components/OrderManagement.vue'
+import BeanTraceability from './components/BeanTraceability.vue'
 
 const activeTab = ref('extractionRec')
 const tabs = [
   { key: 'extractionRec', icon: '🎯', label: '萃取参数推荐' },
   { key: 'recommend', icon: '🧠', label: '风味推荐' },
+  { key: 'traceability', icon: '📜', label: '溯源档案' },
   { key: 'order', icon: '🛒', label: '订单管理' },
   { key: 'inventory', icon: '📦', label: '库存管理' },
   { key: 'promotion', icon: '🎁', label: '营销活动' },

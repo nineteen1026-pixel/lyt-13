@@ -218,6 +218,13 @@
           >
             完成订单
           </button>
+          <button
+            v-if="['paid', 'shipped', 'completed'].includes(order.status)"
+            class="btn btn-sm qr-btn"
+            @click="openQRCode(order)"
+          >
+            🔲 风味二维码
+          </button>
         </div>
       </div>
 
@@ -225,6 +232,14 @@
         暂无订单数据
       </div>
     </div>
+
+    <FlavorQRCode
+      :visible="showQRCode"
+      :orderNo="qrOrderData.orderNo"
+      :customerName="qrOrderData.customerName"
+      :beanItems="qrOrderData.beanItems"
+      @close="showQRCode = false"
+    />
   </div>
 </template>
 
@@ -233,6 +248,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useOrderStore, ORDER_TYPE } from '../stores/order.js'
 import { useInventoryStore } from '../stores/inventory.js'
 import { usePromotionStore } from '../stores/promotion.js'
+import FlavorQRCode from './FlavorQRCode.vue'
 
 const orderStore = useOrderStore()
 const invStore = useInventoryStore()
@@ -240,6 +256,8 @@ const promoStore = usePromotionStore()
 
 const showCreateForm = ref(false)
 const activeFilter = ref('all')
+const showQRCode = ref(false)
+const qrOrderData = ref({ orderNo: '', customerName: '', beanItems: [] })
 let countdownTimer = null
 
 const form = reactive({
@@ -429,10 +447,28 @@ async function handleShip(orderId) {
 async function handleComplete(orderId) {
   try {
     await orderStore.completeOrder(orderId)
-    alert('订单已完成')
+    const order = orderStore.ordersWithDetails.find(o => o.id === orderId)
+    if (order) {
+      openQRCode(order)
+    }
+    alert('订单已完成，风味二维码已生成')
   } catch (e) {
     alert('操作失败: ' + e.message)
   }
+}
+
+function openQRCode(order) {
+  const items = order.items || orderStore.orderItems.filter(i => i.orderId === order.id)
+  const beanItems = items.map(item => ({
+    beanId: item.beanId,
+    beanName: item.beanName,
+  }))
+  qrOrderData.value = {
+    orderNo: order.orderNo,
+    customerName: order.customerName,
+    beanItems,
+  }
+  showQRCode.value = true
 }
 
 function getCountdown(dueAtStr) {
@@ -860,5 +896,14 @@ onUnmounted(() => {
 .btn-sm {
   padding: 4px 12px;
   font-size: 12px;
+}
+
+.qr-btn {
+  background: #F0E6D8;
+  color: #6F4E37;
+  border: 1px solid #D2B48C;
+}
+.qr-btn:hover {
+  background: #E8D5B7;
 }
 </style>
