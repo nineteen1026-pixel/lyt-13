@@ -215,26 +215,34 @@ export const useCoffeeStore = defineStore('coffee', () => {
   }
 
   function getChunkQRText(chunk) {
+    const base = window.location.origin + window.location.pathname
     if (!chunk.isChunked) {
-      const base = window.location.origin + window.location.pathname
       return `${base}#/view/${chunk.data}`
     }
-    return `${chunk.header}${chunk.data}`
+    const chunkPayload = `${chunk.header}${chunk.data}`
+    return `${base}#/chunk/${encodeURIComponent(chunkPayload)}`
   }
 
   function tryParseChunkText(text, chunkStore) {
     if (!text) return null
     if (text.startsWith('#/view/')) text = text.slice(7)
+    if (text.startsWith('#/chunk/')) text = decodeURIComponent(text.slice(8))
     const chunkMatch = text.match(/^QRC:(\d+)\/(\d+):([\s\S]*)$/)
     if (chunkMatch) {
       const idx = parseInt(chunkMatch[1], 10) - 1
       const total = parseInt(chunkMatch[2], 10)
       const data = chunkMatch[3].trim()
       chunkStore[idx] = data
+      try { localStorage.setItem('qr-chunks-last-total', String(total)) } catch (e) {}
+      try { localStorage.setItem('qr-chunks-data', JSON.stringify(chunkStore)) } catch (e) {}
       const got = Object.keys(chunkStore).length
       if (got === total) {
         let full = ''
         for (let i = 0; i < total; i++) full += chunkStore[i] || ''
+        try {
+          localStorage.removeItem('qr-chunks-data')
+          localStorage.removeItem('qr-chunks-last-total')
+        } catch (e) {}
         const jsonStr = _b64DecodeUnicode(full)
         return parseQRPayload(jsonStr)
       }
@@ -246,6 +254,68 @@ export const useCoffeeStore = defineStore('coffee', () => {
       if (obj) return obj
     }
     return parseQRPayload(text)
+  }
+
+  function loadStoredChunks() {
+    try {
+      const data = localStorage.getItem('qr-chunks-data')
+      if (data) return JSON.parse(data)
+    } catch (e) {}
+    return {}
+  }
+
+  function clearStoredChunks() {
+    try {
+      localStorage.removeItem('qr-chunks-data')
+      localStorage.removeItem('qr-chunks-last-total')
+    } catch (e) {}
+  }
+
+  async function uploadToJsonbin(jsonStr) {
+    try {
+      const apiKey = localStorage.getItem('jsonbin-api-key')
+      if (!apiKey) {
+        throw new Error('请先在设置中配置 JSONbin.io API Key')
+      }
+      const beanName = JSON.parse(jsonStr)?.bean?.name || 'traceability'
+      const res = await fetch('https://api.jsonbin.io/v3/b', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Master-Key': apiKey,
+          'X-Bin-Name': `coffee-traceability-${beanName}-${Date.now()}`,
+          'X-Access-Key': '',
+        },
+        body: jsonStr,
+      })
+      if (!res.ok) throw new Error(`上传失败: ${res.status}`)
+      const data = await res.json()
+      const binId = data.metadata?.id
+      if (!binId) throw new Error('返回数据格式错误')
+      const base = window.location.origin + window.location.pathname
+      return `${base}#/bin/${binId}`
+    } catch (e) {
+      throw e
+    }
+  }
+
+  async function fetchFromJsonbin(binId) {
+    try {
+      const apiKey = localStorage.getItem('jsonbin-api-key')
+      if (!apiKey) {
+        throw new Error('请先在设置中配置 JSONbin.io API Key')
+      }
+      const res = await fetch(`https://api.jsonbin.io/v3/b/${binId}/latest`, {
+        headers: {
+          'X-Master-Key': apiKey,
+        },
+      })
+      if (!res.ok) throw new Error(`获取失败: ${res.status}`)
+      const data = await res.json()
+      return parseQRPayload(JSON.stringify(data.record))
+    } catch (e) {
+      throw e
+    }
   }
 
   function buildStandaloneHtml(archive) {
@@ -502,5 +572,6 @@ ${e.notes ? `<div class="card-notes">${escapeHtml(e.notes)}</div>` : ''}
     addRoastCurve, updateRoastCurve, deleteRoastCurve,
     getBeanTraceability, buildQRPayload, buildQRUrl, parseQRPayload,
     buildQRViewUrl, parseViewHash, chunkQRPayload, getChunkQRText, tryParseChunkText, buildStandaloneHtml,
+    loadStoredChunks, clearStoredChunks, uploadToJsonbin, fetchFromJsonbin,
   }
 })

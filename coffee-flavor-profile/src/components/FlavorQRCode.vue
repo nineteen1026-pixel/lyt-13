@@ -37,15 +37,15 @@
 
           <div v-if="!qrChunkMode">
             <canvas ref="qrCanvas" class="qr-canvas"></canvas>
-            <div v-if="qrTruncated" class="qr-truncated-hint">
-              ⚠️ 数据较大，已生成多个分包二维码（见下方），依次扫码即可获得完整档案。
+            <div v-if="qrTruncated && !qrChunkMode" class="qr-truncated-hint">
+              ⚠️ 数据较大，已拆分为多个分包二维码（见下方），依次扫码每一段即可自动拼合完整档案。
             </div>
           </div>
 
           <div v-if="qrChunkMode" class="qr-chunks-container">
             <div class="qr-chunk-hint">
               📦 数据较大，已拆分为 {{ qrChunks.length }} 个分包二维码。<br>
-              请依次扫码每一段，然后粘贴到「溯源档案 → 粘贴 JSON 查看」页面即可还原完整档案。
+              请依次扫码每一段，系统会自动累积拼合，收齐后自动打开完整档案。
             </div>
             <div class="qr-chunks-grid">
               <div v-for="(chunk, i) in qrChunks" :key="i" class="qr-chunk-item">
@@ -254,37 +254,6 @@ const currentQRUrl = computed(() => {
   if (activeBeanId.value) return store.buildQRViewUrl(activeBeanId.value) || store.buildQRUrl(activeBeanId.value)
   return null
 })
-
-function getCompactQRData() {
-  const archive = currentArchive.value
-  if (!archive) return ''
-  const compact = {
-    v: 1,
-    compact: true,
-    deepLinkUrl: currentQRUrl.value,
-    bean: archive.bean,
-    avgRating: archive.avgRating,
-    totalRoasts: archive.totalRoasts,
-    totalExtractions: archive.totalExtractions,
-    curves: (archive.curves || []).map(c => ({
-      id: c.id, name: c.name, description: c.description, nodeCount: c.nodes?.length,
-    })),
-    roastChain: (archive.roastChain || []).map(r => ({
-      id: r.id, date: r.date, level: r.level, temperature: r.temperature,
-      duration: r.duration, notes: r.notes,
-      curve: r.curve ? { name: r.curve.name } : null,
-      extractions: (r.extractions || []).map(e => ({
-        id: e.id, date: e.date, method: e.method, ratio: e.ratio,
-        temperature: e.temperature, time: e.time, notes: e.notes,
-      })),
-    })),
-    unlinkedExtractions: (archive.unlinkedExtractions || []).map(e => ({
-      id: e.id, date: e.date, method: e.method, ratio: e.ratio,
-      temperature: e.temperature, time: e.time, notes: e.notes,
-    })),
-  }
-  return JSON.stringify(compact)
-}
 
 watch(() => props.visible, async (val) => {
   if (val && displayItems.value.length > 0) {

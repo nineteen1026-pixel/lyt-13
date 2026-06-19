@@ -10,7 +10,11 @@
     </div>
 
     <div v-if="importMode" class="import-view">
-      <p class="selector-hint">将扫码获取的溯源 JSON 粘贴到下方，即可查看完整档案（支持分包二维码，依次粘贴每一段即可）</p>
+      <div v-if="chunkProgress || props.chunkProgress" class="chunk-progress-bar">
+        📦 分包收集进度：已收到 {{ (chunkProgress || props.chunkProgress).got }} / {{ (chunkProgress || props.chunkProgress).total }} 段，请继续扫码下一段
+        <button class="btn btn-sm" style="margin-left:10px" @click="store.clearStoredChunks(); chunkProgress = null; importedJson = ''">🔄 重新开始</button>
+      </div>
+      <p class="selector-hint">将扫码获取的溯源 JSON 粘贴到下方，即可查看完整档案（支持分包二维码，依次扫码即可自动拼合）</p>
       <div class="import-box">
         <textarea
           v-model="importedJson"
@@ -60,6 +64,13 @@
     </div>
 
     <div v-else-if="!selectedArchive" class="bean-selector">
+      <div v-if="props.loading" class="loading-bar">
+        ⏳ 正在从短链加载溯源数据，请稍候...
+      </div>
+      <div v-if="chunkProgress || props.chunkProgress" class="chunk-progress-bar">
+        📦 分包收集进度：已收到 {{ (chunkProgress || props.chunkProgress).got }} / {{ (chunkProgress || props.chunkProgress).total }} 段，请继续扫码下一段
+        <button class="btn btn-sm" style="margin-left:10px" @click="store.clearStoredChunks(); chunkProgress = null">🔄 重新开始</button>
+      </div>
       <p class="selector-hint">选择一颗豆种，查看其从产地到杯中的完整溯源链</p>
       <div class="bean-cards">
         <div
@@ -130,15 +141,15 @@
 
           <div v-if="!qrChunkMode">
             <canvas ref="qrCanvas" class="qr-canvas"></canvas>
-            <div v-if="qrTruncated" class="qr-truncated-hint">
-              ⚠️ 数据较大，已生成多个分包二维码（见下方），依次扫码即可获得完整档案。
+            <div v-if="qrTruncated && !qrChunkMode" class="qr-truncated-hint">
+              ⚠️ 数据较大，已拆分为多个分包二维码（见下方），依次扫码每一段即可自动拼合完整档案。
             </div>
           </div>
 
           <div v-if="qrChunkMode" class="qr-chunks-container">
             <div class="qr-chunk-hint">
               📦 数据较大，已拆分为 {{ qrChunks.length }} 个分包二维码。<br>
-              请依次扫码每一段，然后粘贴到「粘贴 JSON 查看」页面即可还原完整档案。
+              请依次扫码每一段，系统会自动累积拼合，收齐后自动打开完整档案。
             </div>
             <div class="qr-chunks-grid">
               <div v-for="(chunk, i) in qrChunks" :key="i" class="qr-chunk-item">
@@ -156,9 +167,29 @@
           <div class="qr-action-row">
             <button class="btn btn-sm" @click="copyFullData">📋 复制完整数据</button>
             <button class="btn btn-sm" @click="downloadHtml">📄 下载 HTML</button>
+            <button class="btn btn-sm" @click="generatingShortUrl ? null : generateShortUrl()" :disabled="generatingShortUrl">
+              {{ generatingShortUrl ? '生成中...' : '🔗 生成短链' }}
+            </button>
+            <button class="btn btn-sm" @click="showApiKeyInput = !showApiKeyInput">
+              {{ showApiKeyInput ? '隐藏配置' : '⚙️ 配置' }}
+            </button>
             <button class="btn btn-sm" @click="showJsonPreview = !showJsonPreview">
               {{ showJsonPreview ? '隐藏' : '查看' }} JSON
             </button>
+          </div>
+
+          <div v-if="showApiKeyInput" class="api-key-box">
+            <div class="api-key-label">JSONbin.io API Key：</div>
+            <input v-model="jsonbinApiKey" type="password" class="api-key-input" placeholder="请输入 JSONbin.io 的 Master API Key" />
+            <div style="font-size:11px;color:#8B7355;margin-top:4px">
+              注册地址：<a href="https://jsonbin.io" target="_blank" style="color:#6F4E37">jsonbin.io</a>，用于生成短链接避免分包扫码
+            </div>
+            <button class="btn btn-primary btn-sm" style="margin-top:8px" @click="saveApiKey">💾 保存 API Key</button>
+          </div>
+
+          <div v-if="shortUrl" class="short-url-box">
+            <div class="short-url-label">✅ 短链已生成：</div>
+            <a :href="shortUrl" target="_blank" class="short-url-link">{{ shortUrl }}</a>
           </div>
           <div v-if="showJsonPreview" class="qr-json-preview">
             <textarea readonly :value="fullQRData" class="json-textarea"></textarea>
@@ -338,6 +369,8 @@ export default {
   props: {
     initialBeanId: { type: Number, default: null },
     viewData: { type: Object, default: null },
+    chunkProgress: { type: Object, default: null },
+    loading: { type: Boolean, default: false },
   },
   setup(props) {
     const store = useCoffeeStore()
@@ -357,6 +390,10 @@ export default {
     const qrChunkMode = ref(false)
     const qrChunks = ref([])
     const qrCurrentIndex = ref(0)
+    const shortUrl = ref(null)
+    const generatingShortUrl = ref(false)
+    const jsonbinApiKey = ref(localStorage.getItem('jsonbin-api-key') || '')
+    const showApiKeyInput = ref(false)
 
     const selectedArchive = computed(() => {
       if (props.viewData) return props.viewData
@@ -439,36 +476,6 @@ export default {
       setTimeout(() => URL.revokeObjectURL(url), 1000)
     }
 
-    function getCompactQRData() {
-      const archive = selectedArchive.value
-      if (!archive) return ''
-      return JSON.stringify({
-        v: 1,
-        compact: true,
-        deepLinkUrl: currentQRUrl.value,
-        bean: archive.bean,
-        avgRating: archive.avgRating,
-        totalRoasts: archive.totalRoasts,
-        totalExtractions: archive.totalExtractions,
-        curves: (archive.curves || []).map(c => ({
-          id: c.id, name: c.name, description: c.description, nodeCount: c.nodes?.length,
-        })),
-        roastChain: (archive.roastChain || []).map(r => ({
-          id: r.id, date: r.date, level: r.level, temperature: r.temperature,
-          duration: r.duration, notes: r.notes,
-          curve: r.curve ? { name: r.curve.name } : null,
-          extractions: (r.extractions || []).map(e => ({
-            id: e.id, date: e.date, method: e.method, ratio: e.ratio,
-            temperature: e.temperature, time: e.time, notes: e.notes,
-          })),
-        })),
-        unlinkedExtractions: (archive.unlinkedExtractions || []).map(e => ({
-          id: e.id, date: e.date, method: e.method, ratio: e.ratio,
-          temperature: e.temperature, time: e.time, notes: e.notes,
-        })),
-      })
-    }
-
     watch(showQR, async (val) => {
       if (val && selectedArchive.value) {
         await nextTick()
@@ -477,6 +484,7 @@ export default {
         qrChunkMode.value = false
         qrChunks.value = []
         qrCurrentIndex.value = 0
+        shortUrl.value = null
         const primaryUrl = (() => {
           if (props.viewData || importedArchive.value) {
             const jsonStr = fullQRData.value
@@ -516,20 +524,30 @@ export default {
                 errorCorrectionLevel: 'L',
                 color: { dark: '#3E2C1C', light: '#FFFDF9' },
               })
-            } catch (e2) {
-              try {
-                await QRCode.toCanvas(qrCanvas.value, currentQRUrl.value || '', {
-                  width: 220,
-                  margin: 2,
-                  errorCorrectionLevel: 'L',
-                  color: { dark: '#3E2C1C', light: '#FFFDF9' },
-                })
-              } catch (e3) {}
-            }
+            } catch (e2) {}
           }
         }
       }
     })
+
+    async function generateShortUrl() {
+      generatingShortUrl.value = true
+      try {
+        const url = await store.uploadToJsonbin(fullQRData.value)
+        shortUrl.value = url
+        alert(`短链已生成：${url}`)
+      } catch (e) {
+        alert(e.message)
+      } finally {
+        generatingShortUrl.value = false
+      }
+    }
+
+    function saveApiKey() {
+      localStorage.setItem('jsonbin-api-key', jsonbinApiKey.value)
+      alert('API Key 已保存')
+      showApiKeyInput.value = false
+    }
 
     async function renderChunks(chunks) {
       await nextTick()
@@ -578,6 +596,10 @@ export default {
       qrChunkMode,
       qrChunks,
       qrCurrentIndex,
+      shortUrl,
+      generatingShortUrl,
+      jsonbinApiKey,
+      showApiKeyInput,
       ratingLabels,
       fullQRData,
       currentQRUrl,
@@ -585,6 +607,8 @@ export default {
       clearImport,
       copyFullData,
       downloadHtml,
+      generateShortUrl,
+      saveApiKey,
     }
   },
 }
@@ -754,6 +778,83 @@ export default {
   border-radius: 8px;
   font-size: 13px;
   font-weight: 500;
+}
+.chunk-progress-bar {
+  background: linear-gradient(135deg, #FFF3E0, #FFE0B2);
+  color: #E65100;
+  padding: 12px 16px;
+  border-radius: 10px;
+  margin-bottom: 14px;
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid #FFCC80;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.loading-bar {
+  background: linear-gradient(135deg, #E3F2FD, #BBDEFB);
+  color: #1565C0;
+  padding: 12px 16px;
+  border-radius: 10px;
+  margin-bottom: 14px;
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid #90CAF9;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.api-key-box {
+  background: #FFF8F0;
+  border: 1px solid #EDE0D0;
+  border-radius: 10px;
+  padding: 12px;
+  margin-top: 10px;
+  text-align: left;
+}
+.api-key-label {
+  font-size: 12px;
+  color: #6F4E37;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+.api-key-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #D2B48C;
+  border-radius: 6px;
+  font-size: 12px;
+  background: #FFFDF9;
+  color: #3E2C1C;
+  font-family: monospace;
+}
+.api-key-input:focus {
+  outline: none;
+  border-color: #6F4E37;
+}
+.short-url-box {
+  background: #E8F5E9;
+  border: 1px solid #A5D6A7;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 10px;
+  text-align: left;
+}
+.short-url-label {
+  font-size: 12px;
+  color: #2E7D32;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.short-url-link {
+  font-size: 12px;
+  color: #1B5E20;
+  word-break: break-all;
+  font-family: monospace;
 }
 .archive-title-btns {
   display: flex;

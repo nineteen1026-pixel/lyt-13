@@ -28,7 +28,7 @@
       <InventoryManagement v-if="activeTab === 'inventory'" />
       <PromotionManagement v-if="activeTab === 'promotion'" />
       <OrderManagement v-if="activeTab === 'order'" />
-      <BeanTraceability v-if="activeTab === 'traceability'" :initialBeanId="traceabilityBeanId" :viewData="traceabilityViewData" />
+      <BeanTraceability v-if="activeTab === 'traceability'" :initialBeanId="traceabilityBeanId" :viewData="traceabilityViewData" :chunkProgress="chunkProgress" :loading="loadingBinData" />
     </div>
   </div>
 </template>
@@ -52,6 +52,8 @@ import { useCoffeeStore } from './stores/coffee.js'
 const activeTab = ref('extractionRec')
 const traceabilityBeanId = ref(null)
 const traceabilityViewData = ref(null)
+const chunkProgress = ref(null)
+const loadingBinData = ref(false)
 const coffeeStore = useCoffeeStore()
 
 function parseHash() {
@@ -61,6 +63,7 @@ function parseHash() {
     activeTab.value = 'traceability'
     traceabilityBeanId.value = Number(traceMatch[1])
     traceabilityViewData.value = null
+    chunkProgress.value = null
     return
   }
   const viewMatch = hash.match(/^#\/view\/([\s\S]+)$/)
@@ -70,7 +73,48 @@ function parseHash() {
       activeTab.value = 'traceability'
       traceabilityBeanId.value = null
       traceabilityViewData.value = data
+      chunkProgress.value = null
+      coffeeStore.clearStoredChunks()
     }
+    return
+  }
+  const chunkMatch = hash.match(/^#\/chunk\/([\s\S]+)$/)
+  if (chunkMatch) {
+    const chunkStore = coffeeStore.loadStoredChunks()
+    const chunkRaw = decodeURIComponent(chunkMatch[1])
+    const result = coffeeStore.tryParseChunkText(chunkRaw, chunkStore)
+    if (result && !result.__chunkProgress) {
+      activeTab.value = 'traceability'
+      traceabilityBeanId.value = null
+      traceabilityViewData.value = result
+      chunkProgress.value = null
+    } else if (result && result.__chunkProgress) {
+      activeTab.value = 'traceability'
+      traceabilityBeanId.value = null
+      traceabilityViewData.value = null
+      chunkProgress.value = result.__chunkProgress
+    }
+    return
+  }
+  const binMatch = hash.match(/^#\/bin\/([a-zA-Z0-9]+)$/)
+  if (binMatch) {
+    loadingBinData.value = true
+    activeTab.value = 'traceability'
+    traceabilityBeanId.value = null
+    traceabilityViewData.value = null
+    chunkProgress.value = null
+    coffeeStore.fetchFromJsonbin(binMatch[1])
+      .then(data => {
+        if (data) {
+          traceabilityViewData.value = data
+        }
+      })
+      .catch(err => {
+        alert(`加载短链数据失败：${err.message}`)
+      })
+      .finally(() => {
+        loadingBinData.value = false
+      })
   }
 }
 
