@@ -255,7 +255,8 @@ function calcRoastMatch(levelA, levelB) {
   return 1 - Math.abs(a - b) / 6
 }
 
-export function calcSimilarity(record, target) {
+export function calcSimilarity(record, target, weights) {
+  const w = weights || { typeW: 0.25, varietyW: 0.35, roastW: 0.30, processW: 0.10 }
   const targetType = target.beanType || getBeanType(target.beanVariety)
   const typeMatch = calcBeanTypeMatch(record.beanType, targetType)
   const varietyMatch = record.beanVariety === target.beanVariety ? 1 : 0.3
@@ -263,7 +264,7 @@ export function calcSimilarity(record, target) {
   const targetProcess = target.process || getBeanProcess(target.beanVariety)
   const processMatch = calcProcessMatch(record.process, targetProcess)
 
-  return 0.25 * typeMatch + 0.35 * varietyMatch + 0.3 * roastMatch + 0.1 * processMatch
+  return w.typeW * typeMatch + w.varietyW * varietyMatch + w.roastW * roastMatch + w.processW * processMatch
 }
 
 function weightedStats(values, weights) {
@@ -281,7 +282,7 @@ const BAYESIAN_PRIOR = {
   '混合豆': { ratio: { mean: 14, std: 2 }, temp: { mean: 93, std: 3 }, time: { mean: 3.2, std: 0.8 } },
 }
 
-export function computeRecommendation(allRecords, beanVariety, roastLevel, topK = 20) {
+export function computeRecommendation(allRecords, beanVariety, roastLevel, topK = 20, simWeights = null) {
   const beanType = getBeanType(beanVariety)
   const process = getBeanProcess(beanVariety)
 
@@ -289,7 +290,7 @@ export function computeRecommendation(allRecords, beanVariety, roastLevel, topK 
 
   const recordsWithSim = allRecords.map(r => ({
     ...r,
-    similarity: calcSimilarity(r, target),
+    similarity: calcSimilarity(r, target, simWeights),
   }))
 
   recordsWithSim.sort((a, b) => {

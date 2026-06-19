@@ -10,6 +10,7 @@ import {
   getBeanProcess,
   getBeanOrigin,
 } from '../utils/recommendationAlgo.js'
+import { getRecommendationService } from '../utils/recommendationService.js'
 
 export const useExtractionParamsStore = defineStore('extractionParams', () => {
   const paramHistory = ref([])
@@ -19,6 +20,14 @@ export const useExtractionParamsStore = defineStore('extractionParams', () => {
   const lastBatchTest = ref(null)
   const resultCache = ref(new Map())
   const lastComputedTime = ref(0)
+
+  const lastStressTest = ref(null)
+  const lastFullValidation = ref(null)
+  const lastWeightIteration = ref(null)
+  const currentWeights = ref({ typeW: 0.25, varietyW: 0.35, roastW: 0.30, processW: 0.10 })
+  const weightHistory = ref([])
+
+  const svc = getRecommendationService()
 
   const totalCombinationsTested = computed(() => {
     const combos = new Set()
@@ -86,9 +95,18 @@ export const useExtractionParamsStore = defineStore('extractionParams', () => {
     return trend
   })
 
+  function _syncService() {
+    svc.updateRecords(paramHistory.value)
+    svc.updateFeedbacks(feedbacks.value)
+    if (!svc._initialized && paramHistory.value.length > 0) {
+      svc.init(paramHistory.value, feedbacks.value, currentWeights.value)
+    }
+  }
+
   async function loadAll() {
     paramHistory.value = await db.extractionParams.toArray()
     feedbacks.value = await db.recommendationFeedbacks.toArray()
+    _syncService()
   }
 
   function clearCache() {
@@ -111,7 +129,7 @@ export const useExtractionParamsStore = defineStore('extractionParams', () => {
     isComputing.value = true
     try {
       await new Promise(r => setTimeout(r, 10))
-      const result = computeRecommendation(paramHistory.value, beanVariety, roastLevel)
+      const result = computeRecommendation(paramHistory.value, beanVariety, roastLevel, 20, currentWeights.value)
       lastComputedTime.value = Date.now() - now
       currentRecommendation.value = result
       resultCache.value.set(cacheKey, { data: result, time: now })
@@ -119,6 +137,11 @@ export const useExtractionParamsStore = defineStore('extractionParams', () => {
     } finally {
       isComputing.value = false
     }
+  }
+
+  async function apiRecommend(beanVariety, roastLevel) {
+    _syncService()
+    return svc.recommend(beanVariety, roastLevel)
   }
 
   async function addParamRecord(record) {
@@ -146,6 +169,7 @@ export const useExtractionParamsStore = defineStore('extractionParams', () => {
     data.id = id
     paramHistory.value.push(data)
     clearCache()
+    _syncService()
     return id
   }
 
@@ -185,6 +209,7 @@ export const useExtractionParamsStore = defineStore('extractionParams', () => {
         sampleCount: 1,
       })
     }
+    _syncService()
     return id
   }
 
@@ -197,6 +222,37 @@ export const useExtractionParamsStore = defineStore('extractionParams', () => {
     } finally {
       isComputing.value = false
     }
+  }
+
+  async function runStressTest(concurrency = 1000) {
+    isComputing.value = true
+    try {
+      _syncService()
+      const result = await svc.stressTest(concurrency)
+      lastStressTest.value = result
+      return result
+    } finally {
+      isComputing.value = false
+    }
+  }
+
+  function runFullValidation() {
+    _syncService()
+    const result = svc.fullBatchValidation()
+    lastFullValidation.value = result
+    return result
+  }
+
+  function iterateWeights() {
+    _syncService()
+    const iteration = svc.iterateWeights()
+    if (iteration) {
+      currentWeights.value = { ...iteration.newWeights }
+      lastWeightIteration.value = iteration
+      weightHistory.value = svc.weightHistory
+      clearCache()
+    }
+    return iteration
   }
 
   function getScatterChartData() {
@@ -238,6 +294,11 @@ export const useExtractionParamsStore = defineStore('extractionParams', () => {
     isComputing,
     lastBatchTest,
     lastComputedTime,
+    lastStressTest,
+    lastFullValidation,
+    lastWeightIteration,
+    currentWeights,
+    weightHistory,
     totalCombinationsTested,
     totalRecords,
     avgOverallScore,
@@ -248,9 +309,13 @@ export const useExtractionParamsStore = defineStore('extractionParams', () => {
     loadAll,
     clearCache,
     recommend,
+    apiRecommend,
     addParamRecord,
     submitFeedback,
     batchTestCombinations,
+    runStressTest,
+    runFullValidation,
+    iterateWeights,
     getScatterChartData,
     getHeatmapData,
   }
