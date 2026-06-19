@@ -2,9 +2,14 @@
   <div class="module-card">
     <div class="module-header">
       <h2>🎁 营销活动</h2>
-      <button class="btn btn-primary" @click="showCreateForm = !showCreateForm">
-        {{ showCreateForm ? '取消' : '+ 新建活动' }}
-      </button>
+      <div class="header-actions">
+        <button class="btn" @click="goToCouponCenter">
+          🎫 优惠券中心
+        </button>
+        <button class="btn btn-primary" @click="showCreateForm = !showCreateForm">
+          {{ showCreateForm ? '取消' : '+ 新建活动' }}
+        </button>
+      </div>
     </div>
 
     <div v-if="showCreateForm" class="form-section">
@@ -140,6 +145,8 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { usePromotionStore } from '../stores/promotion.js'
 
+const emit = defineEmits(['navigate'])
+
 const promoStore = usePromotionStore()
 
 const showCreateForm = ref(false)
@@ -253,6 +260,10 @@ async function handleDelete(id) {
   if (!confirm('确定要删除该活动吗？')) return
   await promoStore.deletePromotion(id)
 }
+
+function goToCouponCenter() {
+  emit('navigate', 'coupon')
+}
 </script>
 
 <style scoped>
@@ -261,6 +272,11 @@ async function handleDelete(id) {
   font-weight: 600;
   color: #3E2C1C;
   margin-bottom: 16px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .promotion-stats {

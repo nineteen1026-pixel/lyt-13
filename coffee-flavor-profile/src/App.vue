@@ -26,7 +26,8 @@
       <FlavorRecommendation v-if="activeTab === 'recommend'" />
       <ExtractionRecommendation v-if="activeTab === 'extractionRec'" />
       <InventoryManagement v-if="activeTab === 'inventory'" />
-      <PromotionManagement v-if="activeTab === 'promotion'" />
+      <PromotionManagement v-if="activeTab === 'promotion'" @navigate="activeTab = $event" />
+      <CouponCenter v-if="activeTab === 'coupon'" />
       <OrderManagement v-if="activeTab === 'order'" />
       <BeanTraceability v-if="activeTab === 'traceability'" :initialBeanId="traceabilityBeanId" :viewData="traceabilityViewData" :chunkProgress="chunkProgress" :loading="loadingBinData" />
     </div>
@@ -45,6 +46,7 @@ import FlavorRecommendation from './components/FlavorRecommendation.vue'
 import ExtractionRecommendation from './components/ExtractionRecommendation.vue'
 import InventoryManagement from './components/InventoryManagement.vue'
 import PromotionManagement from './components/PromotionManagement.vue'
+import CouponCenter from './components/CouponCenter.vue'
 import OrderManagement from './components/OrderManagement.vue'
 import BeanTraceability from './components/BeanTraceability.vue'
 import { useCoffeeStore } from './stores/coffee.js'
@@ -137,6 +139,7 @@ const tabs = [
   { key: 'order', icon: '🛒', label: '订单管理' },
   { key: 'inventory', icon: '📦', label: '库存管理' },
   { key: 'promotion', icon: '🎁', label: '营销活动' },
+  { key: 'coupon', icon: '🎫', label: '优惠券中心' },
   { key: 'cupping', icon: '🔍', label: '杯测对比' },
   { key: 'bean', icon: '🫘', label: '豆种登记' },
   { key: 'curve', icon: '📈', label: '烘焙曲线' },

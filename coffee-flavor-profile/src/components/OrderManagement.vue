@@ -70,14 +70,66 @@
         </div>
       </div>
 
+      <div v-if="form.customerPhone.trim() && calculateTotals.totalAmount > 0" class="coupon-section">
+        <h4 class="section-subtitle">🎫 选择优惠券</h4>
+        <div v-if="applicableCoupons.length > 0" class="coupon-select-list">
+          <label
+            v-for="coupon in applicableCoupons"
+            :key="coupon.id"
+            class="coupon-select-item"
+            :class="{ selected: form.selectedCouponId === coupon.id }"
+          >
+            <input
+              type="radio"
+              :value="coupon.id"
+              v-model="form.selectedCouponId"
+              :name="'coupon-select'"
+            />
+            <div class="coupon-select-info">
+              <div class="coupon-select-amount">
+                <span v-if="coupon.template.discountType === 'fixed'">¥</span>
+                {{ coupon.template.discount }}
+                <span v-if="coupon.template.discountType === 'percentage'">%</span>
+              </div>
+              <div class="coupon-select-detail">
+                <div class="coupon-select-name">{{ coupon.template.name }}</div>
+                <div class="coupon-select-condition">满¥{{ coupon.template.minAmount.toFixed(2) }}可用</div>
+                <div class="coupon-select-valid">
+                  有效期: {{ new Date(coupon.validStart).toLocaleDateString() }} - {{ new Date(coupon.validEnd).toLocaleDateString() }}
+                </div>
+              </div>
+              <div class="coupon-select-discount">
+                -¥{{ coupon.calculatedDiscount.toFixed(2) }}
+              </div>
+            </div>
+          </label>
+          <label class="coupon-select-item no-use" :class="{ selected: !form.selectedCouponId }">
+            <input
+              type="radio"
+              :value="null"
+              v-model="form.selectedCouponId"
+              :name="'coupon-select'"
+            />
+            <span>不使用优惠券</span>
+          </label>
+        </div>
+        <div v-else class="no-coupon-tip">
+          暂无可用优惠券
+        </div>
+      </div>
+
       <div class="summary-section">
         <div class="summary-row">
           <span>商品总额:</span>
           <span>¥{{ calculateTotals.totalAmount.toFixed(2) }}</span>
         </div>
-        <div v-if="bestPromotion" class="summary-row discount">
-          <span>优惠 ({{ bestPromotion.name }}):</span>
-          <span>-¥{{ bestPromotion.calculatedDiscount.toFixed(2) }}</span>
+        <div v-if="calculateTotals.promoDiscount > 0" class="summary-row discount">
+          <span>活动优惠 ({{ bestPromotion?.name || '营销活动' }}):</span>
+          <span>-¥{{ calculateTotals.promoDiscount.toFixed(2) }}</span>
+        </div>
+        <div v-if="calculateTotals.couponDiscount > 0" class="summary-row discount">
+          <span>优惠券 ({{ selectedCouponInfo?.template?.name || '优惠券' }}):</span>
+          <span>-¥{{ calculateTotals.couponDiscount.toFixed(2) }}</span>
         </div>
         <div class="summary-row total">
           <span>应付金额:</span>
@@ -249,11 +301,13 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useOrderStore, ORDER_TYPE } from '../stores/order.js'
 import { useInventoryStore } from '../stores/inventory.js'
 import { usePromotionStore } from '../stores/promotion.js'
+import { useCouponStore } from '../stores/coupon.js'
 import FlavorQRCode from './FlavorQRCode.vue'
 
 const orderStore = useOrderStore()
 const invStore = useInventoryStore()
 const promoStore = usePromotionStore()
+const couponStore = useCouponStore()
 
 const showCreateForm = ref(false)
 const activeFilter = ref('all')
@@ -267,6 +321,7 @@ const form = reactive({
   customerPhone: '',
   isNewCustomer: false,
   cart: {},
+  selectedCouponId: null,
 })
 
 const availableInventory = computed(() => {
@@ -300,12 +355,14 @@ const filteredOrders = computed(() => {
 const calculateTotals = computed(() => {
   let totalAmount = 0
   let deposit = 0
+  const beanIds = []
 
   for (const inv of availableInventory.value) {
     const qty = form.cart[inv.beanId] || 0
     if (qty > 0) {
       const price = form.type === ORDER_TYPE.PRESALE ? inv.presalePrice : inv.price
       totalAmount += price * qty
+      beanIds.push(inv.beanId)
       if (form.type === ORDER_TYPE.PRESALE) {
         deposit += inv.deposit * qty
       }
@@ -315,16 +372,27 @@ const calculateTotals = computed(() => {
   totalAmount = +totalAmount.toFixed(2)
   deposit = +deposit.toFixed(2)
 
-  const applicable = promoStore.getApplicablePromotions(totalAmount, form.type, form.isNewCustomer)
-  const discountAmount = applicable.length > 0 ? applicable[0].calculatedDiscount : 0
-  const payAmount = +(totalAmount - discountAmount).toFixed(2)
+  const applicablePromos = promoStore.getApplicablePromotions(totalAmount, form.type, form.isNewCustomer)
+  const promoDiscount = applicablePromos.length > 0 ? applicablePromos[0].calculatedDiscount : 0
+
+  let couponDiscount = 0
+  if (form.selectedCouponId && form.customerPhone.trim()) {
+    const coupon = couponStore.getCouponById(form.selectedCouponId)
+    const template = couponStore.getTemplateById(coupon?.templateId)
+    if (coupon && template && coupon.memberPhone === form.customerPhone.trim()) {
+      couponDiscount = couponStore.calculateDiscount(template, totalAmount, form.type, beanIds)
+    }
+  }
+
+  const discountAmount = +(promoDiscount + couponDiscount).toFixed(2)
+  const payAmount = +Math.max(0, totalAmount - discountAmount).toFixed(2)
   let balance = +(payAmount - deposit).toFixed(2)
   if (balance < 0) {
     balance = 0
     deposit = payAmount
   }
 
-  return { totalAmount, deposit, balance, payAmount, discountAmount }
+  return { totalAmount, deposit, balance, payAmount, discountAmount, promoDiscount, couponDiscount }
 })
 
 const bestPromotion = computed(() => {
@@ -334,6 +402,30 @@ const bestPromotion = computed(() => {
     form.isNewCustomer
   )
   return applicable.length > 0 ? applicable[0] : null
+})
+
+const applicableCoupons = computed(() => {
+  if (!form.customerPhone.trim() || calculateTotals.value.totalAmount <= 0) return []
+
+  const beanIds = []
+  for (const inv of availableInventory.value) {
+    const qty = form.cart[inv.beanId] || 0
+    if (qty > 0) {
+      beanIds.push(inv.beanId)
+    }
+  }
+
+  return couponStore.getApplicableCoupons(
+    form.customerPhone.trim(),
+    calculateTotals.value.totalAmount,
+    form.type,
+    beanIds
+  )
+})
+
+const selectedCouponInfo = computed(() => {
+  if (!form.selectedCouponId) return null
+  return applicableCoupons.value.find(c => c.id === form.selectedCouponId) || null
 })
 
 const canSubmit = computed(() => {
@@ -361,6 +453,7 @@ function resetForm() {
   form.customerPhone = ''
   form.isNewCustomer = false
   form.cart = {}
+  form.selectedCouponId = null
 }
 
 async function submitOrder() {
@@ -381,6 +474,7 @@ async function submitOrder() {
       customerName: form.customerName,
       customerPhone: form.customerPhone,
       isNewCustomer: form.isNewCustomer,
+      couponId: form.selectedCouponId,
     })
     alert(`订单创建成功！订单号: ${order.orderNo}`)
     resetForm()
@@ -913,5 +1007,108 @@ onUnmounted(() => {
 }
 .qr-btn:hover {
   background: #E8D5B7;
+}
+
+.coupon-section {
+  background: #FFFCF7;
+  border: 1px solid #EDE0D0;
+  border-radius: 10px;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+.section-subtitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: #6F4E37;
+  margin-bottom: 12px;
+}
+
+.coupon-select-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.coupon-select-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #FFF8F0;
+  border: 2px solid #EDE0D0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.coupon-select-item:hover {
+  border-color: #D2B48C;
+}
+
+.coupon-select-item.selected {
+  border-color: #C0392B;
+  background: #FEF2F2;
+}
+
+.coupon-select-item.no-use {
+  background: #F9FAFB;
+  border-style: dashed;
+  color: #6B7280;
+}
+
+.coupon-select-info {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.coupon-select-amount {
+  font-size: 22px;
+  font-weight: 700;
+  color: #C0392B;
+  min-width: 70px;
+  text-align: center;
+}
+
+.coupon-select-amount span {
+  font-size: 12px;
+}
+
+.coupon-select-detail {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.coupon-select-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #3E2C1C;
+}
+
+.coupon-select-condition {
+  font-size: 12px;
+  color: #8B7355;
+}
+
+.coupon-select-valid {
+  font-size: 11px;
+  color: #B0A090;
+}
+
+.coupon-select-discount {
+  font-size: 14px;
+  font-weight: 600;
+  color: #C0392B;
+}
+
+.no-coupon-tip {
+  text-align: center;
+  padding: 20px;
+  color: #B0A090;
+  font-size: 13px;
 }
 </style>

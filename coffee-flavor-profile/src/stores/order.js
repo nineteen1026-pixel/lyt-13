@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import db from '../db.js'
 import { useInventoryStore } from './inventory.js'
 import { usePromotionStore } from './promotion.js'
+import { useCouponStore } from './coupon.js'
 import { useCoffeeStore } from './coffee.js'
 
 export const ORDER_STATUS = {
@@ -149,6 +150,7 @@ export const useOrderStore = defineStore('order', () => {
   async function rollbackOrderResources(order) {
     const invStore = useInventoryStore()
     const promoStore = usePromotionStore()
+    const couponStore = useCouponStore()
     const items = orderItems.value.filter(i => i.orderId === order.id)
 
     for (const item of items) {
@@ -166,16 +168,26 @@ export const useOrderStore = defineStore('order', () => {
         console.error('回滚营销活动失败:', e)
       }
     }
+
+    if (order.couponId) {
+      try {
+        await couponStore.rollbackCoupon(order.id)
+      } catch (e) {
+        console.error('回滚优惠券失败:', e)
+      }
+    }
   }
 
-  async function createOrder({ type, items, customerName, customerPhone, promotionId = null, isNewCustomer = false }) {
+  async function createOrder({ type, items, customerName, customerPhone, promotionId = null, couponId = null, isNewCustomer = false }) {
     const invStore = useInventoryStore()
     const promoStore = usePromotionStore()
+    const couponStore = useCouponStore()
 
     if (!items || items.length === 0) throw new Error('订单商品不能为空')
 
     const orderItemsData = []
     let totalAmount = 0
+    const beanIds = []
 
     for (const item of items) {
       const inv = await invStore.getByBeanId(item.beanId)
@@ -199,27 +211,43 @@ export const useOrderStore = defineStore('order', () => {
         discount: 0,
       })
 
+      beanIds.push(item.beanId)
       totalAmount += subtotal
     }
 
-    let discountAmount = 0
+    let promoDiscount = 0
     let finalPromotionId = null
 
     if (promotionId) {
       const promo = promoStore.promotions.find(p => p.id === promotionId)
-      discountAmount = promoStore.calculateDiscount(promo, totalAmount, type)
-      if (discountAmount > 0) finalPromotionId = promotionId
+      promoDiscount = promoStore.calculateDiscount(promo, totalAmount, type)
+      if (promoDiscount > 0) finalPromotionId = promotionId
     } else {
       const applicable = promoStore.getApplicablePromotions(totalAmount, type, isNewCustomer)
       if (applicable.length > 0) {
-        discountAmount = applicable[0].calculatedDiscount
+        promoDiscount = applicable[0].calculatedDiscount
         finalPromotionId = applicable[0].id
       }
     }
 
+    let couponDiscount = 0
+    let finalCouponId = null
+
+    if (couponId) {
+      const coupon = couponStore.getCouponById(couponId)
+      const template = couponStore.getTemplateById(coupon?.templateId)
+      if (coupon && template) {
+        const discount = couponStore.calculateDiscount(template, totalAmount, type, beanIds)
+        if (discount > 0 && coupon.memberPhone === customerPhone) {
+          couponDiscount = discount
+          finalCouponId = couponId
+        }
+      }
+    }
+
     totalAmount = +totalAmount.toFixed(2)
-    discountAmount = +discountAmount.toFixed(2)
-    const payAmount = +(totalAmount - discountAmount).toFixed(2)
+    const discountAmount = +(promoDiscount + couponDiscount).toFixed(2)
+    const payAmount = +Math.max(0, totalAmount - discountAmount).toFixed(2)
 
     let depositAmount = 0
     let balanceAmount = 0
@@ -259,6 +287,7 @@ export const useOrderStore = defineStore('order', () => {
       discountAmount,
       payAmount,
       promotionId: finalPromotionId,
+      couponId: finalCouponId,
       depositDueAt,
       balanceDueAt: null,
       depositPaidAt: null,
@@ -269,7 +298,7 @@ export const useOrderStore = defineStore('order', () => {
       updatedAt: now.toISOString(),
     }
 
-    return await db.transaction('rw', db.orders, db.orderItems, db.inventory, db.promotionRedemptions, async () => {
+    return await db.transaction('rw', db.orders, db.orderItems, db.inventory, db.promotionRedemptions, db.coupons, async () => {
       const orderId = await db.orders.add(orderData)
       orderData.id = orderId
 
@@ -281,8 +310,12 @@ export const useOrderStore = defineStore('order', () => {
         await invStore.reserveStock(item.beanId, item.quantity)
       }
 
-      if (finalPromotionId && discountAmount > 0) {
-        await promoStore.redeemPromotion(orderId, finalPromotionId, discountAmount)
+      if (finalPromotionId && promoDiscount > 0) {
+        await promoStore.redeemPromotion(orderId, finalPromotionId, promoDiscount)
+      }
+
+      if (finalCouponId && couponDiscount > 0) {
+        await couponStore.useCoupon(finalCouponId, orderId, couponDiscount)
       }
 
       orders.value.push(orderData)
