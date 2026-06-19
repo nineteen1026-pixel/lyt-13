@@ -150,7 +150,7 @@ export class RecommendationService {
     }
   }
 
-  async stressTest(concurrency = 1000) {
+  async _runSingleStress(concurrency) {
     const startedAt = performance.now()
     const combos = []
     for (let i = 0; i < concurrency; i++) {
@@ -163,6 +163,9 @@ export class RecommendationService {
     const latencies = []
     let hit = 0
     let ok = 0
+    let highConf = 0
+    let medConf = 0
+    let lowConf = 0
 
     const BATCH = 50
     for (let b = 0; b < combos.length; b += BATCH) {
@@ -173,11 +176,17 @@ export class RecommendationService {
         if (r.ok) {
           ok++
           if (r.code === 'CACHE_HIT') hit++
+          const conf = r.data?.confidence ?? 0
+          if (conf >= 80) highConf++
+          else if (conf >= 60) medConf++
+          else lowConf++
         } else {
           errors.push(r)
         }
       })
-      await new Promise(resolve => setTimeout(resolve, 0))
+      if (b + BATCH < combos.length) {
+        await new Promise(resolve => setTimeout(resolve, 0))
+      }
     }
 
     latencies.sort((a, b) => a - b)
@@ -186,20 +195,15 @@ export class RecommendationService {
     const p99 = latencies[Math.floor(latencies.length * 0.99)] || 0
     const totalMs = performance.now() - startedAt
     const qps = (concurrency / totalMs) * 1000
-
-    const avgLatency = +(latencies.reduce((s, v) => s + v, 0) / latencies.length).toFixed(2)
     const successRate = +((ok / concurrency) * 100).toFixed(2)
-    const confidenceDistribution = {
-      high: 0, medium: 0, low: 0,
-    }
+
     return {
       concurrency,
       totalRequests: concurrency,
       successRate,
       cacheHitRate: +((hit / concurrency) * 100).toFixed(2),
       totalTimeMs: +totalMs.toFixed(2),
-      avgLatencyMs: avgLatency,
-      avgResponseMs: avgLatency,
+      avgLatencyMs: +(latencies.reduce((s, v) => s + v, 0) / latencies.length).toFixed(2),
       p50LatencyMs: +p50.toFixed(2),
       p50Ms: +p50.toFixed(2),
       p95LatencyMs: +p95.toFixed(2),
@@ -209,11 +213,58 @@ export class RecommendationService {
       throughputQps: +qps.toFixed(2),
       throughput: +qps.toFixed(2),
       errorCount: errors.length,
-      sampleErrors: errors.slice(0, 3),
-      timestamp: new Date().toISOString(),
+      confidenceDistribution: {
+        high: highConf,
+        medium: medConf,
+        low: lowConf,
+        highPct: +(highConf / concurrency * 100).toFixed(1),
+      },
       meetsRequirement: successRate >= 99.9 && +p99.toFixed(2) <= 2000,
-      confidenceDistribution,
-      tierResults: [],
+    }
+  }
+
+  async stressTest(concurrency = 1000) {
+    const TIERS = [100, 500, 1000, 2000, 5000]
+    const tierResults = []
+
+    for (const tier of TIERS) {
+      const result = await this._runSingleStress(tier)
+      tierResults.push({
+        concurrency: tier,
+        totalTimeMs: result.totalTimeMs,
+        avgResponseMs: result.avgLatencyMs,
+        p50Ms: result.p50Ms,
+        p95Ms: result.p95Ms,
+        p99Ms: result.p99Ms,
+        successRate: result.successRate,
+        throughput: result.throughput,
+      })
+    }
+
+    const target = await this._runSingleStress(concurrency)
+
+    return {
+      concurrency,
+      totalRequests: concurrency,
+      successRate: target.successRate,
+      cacheHitRate: target.cacheHitRate,
+      totalTimeMs: target.totalTimeMs,
+      avgLatencyMs: target.avgLatencyMs,
+      avgResponseMs: target.avgLatencyMs,
+      p50LatencyMs: target.p50LatencyMs,
+      p50Ms: target.p50Ms,
+      p95LatencyMs: target.p95LatencyMs,
+      p95Ms: target.p95Ms,
+      p99LatencyMs: target.p99LatencyMs,
+      p99Ms: target.p99Ms,
+      throughputQps: target.throughputQps,
+      throughput: target.throughput,
+      errorCount: target.errorCount,
+      confidenceDistribution: target.confidenceDistribution,
+      meetsRequirement: target.meetsRequirement,
+      tierResults,
+      timestamp: new Date().toISOString(),
+      sampleErrors: [],
     }
   }
 
