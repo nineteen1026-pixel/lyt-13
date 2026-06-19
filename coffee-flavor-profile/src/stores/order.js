@@ -236,9 +236,16 @@ export const useOrderStore = defineStore('order', () => {
     if (couponId) {
       const coupon = couponStore.getCouponById(couponId)
       const template = couponStore.getTemplateById(coupon?.templateId)
-      if (coupon && template) {
-        const discount = couponStore.calculateDiscount(template, totalAmount, type, beanIds)
-        if (discount > 0 && coupon.memberPhone === customerPhone) {
+      if (coupon && template && coupon.memberPhone === customerPhone) {
+        const discount = couponStore.calculateDiscount(
+          template,
+          totalAmount,
+          type,
+          beanIds,
+          isNewCustomer,
+          customerPhone
+        )
+        if (discount > 0) {
           couponDiscount = discount
           finalCouponId = couponId
         }
@@ -319,6 +326,7 @@ export const useOrderStore = defineStore('order', () => {
           finalCouponId,
           orderId,
           couponDiscount,
+          totalAmount,
           customerPhone,
           isNewCustomer,
           type,

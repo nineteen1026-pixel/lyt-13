@@ -233,7 +233,7 @@ export const useCouponStore = defineStore('coupon', () => {
     return results
   }
 
-  async function useCoupon(couponId, orderId, discountAmount, customerPhone = '', isNewCustomer = false, orderType = 'normal', beanIds = []) {
+  async function useCoupon(couponId, orderId, discountAmount, orderAmount = 0, customerPhone = '', isNewCustomer = false, orderType = 'normal', beanIds = []) {
     const coupon = coupons.value.find(c => c.id === couponId)
     if (!coupon) throw new Error('优惠券不存在')
     if (coupon.status !== COUPON_STATUS.UNUSED) throw new Error('优惠券状态不可用')
@@ -250,7 +250,7 @@ export const useCouponStore = defineStore('coupon', () => {
     if (!template) throw new Error('优惠券模板不存在')
     if (template.status !== TEMPLATE_STATUS.ACTIVE) throw new Error('优惠券模板已停用')
 
-    const actualDiscount = calculateDiscount(template, 0, orderType, beanIds, isNewCustomer, customerPhone)
+    const actualDiscount = calculateDiscount(template, orderAmount, orderType, beanIds, isNewCustomer, customerPhone)
     if (actualDiscount <= 0) {
       throw new Error('优惠券不满足使用条件')
     }
