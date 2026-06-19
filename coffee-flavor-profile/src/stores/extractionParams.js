@@ -236,11 +236,17 @@ export const useExtractionParamsStore = defineStore('extractionParams', () => {
     }
   }
 
-  function runFullValidation() {
-    _syncService()
-    const result = svc.fullBatchValidation()
-    lastFullValidation.value = result
-    return result
+  async function runFullValidation() {
+    isComputing.value = true
+    try {
+      _syncService()
+      await new Promise(r => setTimeout(r, 10))
+      const result = svc.fullBatchValidation()
+      lastFullValidation.value = result
+      return result
+    } finally {
+      isComputing.value = false
+    }
   }
 
   function iterateWeights() {

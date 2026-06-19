@@ -490,7 +490,7 @@ async function runBatchTest() {
 }
 
 async function runFullValidation() {
-  store.runFullValidation()
+  await store.runFullValidation()
 }
 
 async function runStressTest() {

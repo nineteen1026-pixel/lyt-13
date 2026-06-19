@@ -424,12 +424,12 @@ async function runApiTest() {
 const concurrencyOptions = [100, 500, 1000, 2000, 5000]
 const concurrency = ref(1000)
 const stressLoading = ref(false)
-const stressResult = ref(null)
+const stressResult = computed(() => props.store.lastStressTest)
 
 async function runStress() {
   stressLoading.value = true
   try {
-    stressResult.value = await props.store.runStressTest(concurrency.value)
+    await props.store.runStressTest(concurrency.value)
   } finally {
     stressLoading.value = false
   }
@@ -437,12 +437,12 @@ async function runStress() {
 
 // Full validation
 const validateLoading = ref(false)
-const validateResult = ref(null)
+const validateResult = computed(() => props.store.lastFullValidation)
 
-function runValidate() {
+async function runValidate() {
   validateLoading.value = true
   try {
-    validateResult.value = props.store.runFullValidation()
+    await props.store.runFullValidation()
   } finally {
     validateLoading.value = false
   }

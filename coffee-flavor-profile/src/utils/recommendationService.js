@@ -187,20 +187,33 @@ export class RecommendationService {
     const totalMs = performance.now() - startedAt
     const qps = (concurrency / totalMs) * 1000
 
+    const avgLatency = +(latencies.reduce((s, v) => s + v, 0) / latencies.length).toFixed(2)
+    const successRate = +((ok / concurrency) * 100).toFixed(2)
+    const confidenceDistribution = {
+      high: 0, medium: 0, low: 0,
+    }
     return {
       concurrency,
       totalRequests: concurrency,
-      successRate: +((ok / concurrency) * 100).toFixed(2),
+      successRate,
       cacheHitRate: +((hit / concurrency) * 100).toFixed(2),
       totalTimeMs: +totalMs.toFixed(2),
-      avgLatencyMs: +(latencies.reduce((s, v) => s + v, 0) / latencies.length).toFixed(2),
+      avgLatencyMs: avgLatency,
+      avgResponseMs: avgLatency,
       p50LatencyMs: +p50.toFixed(2),
+      p50Ms: +p50.toFixed(2),
       p95LatencyMs: +p95.toFixed(2),
+      p95Ms: +p95.toFixed(2),
       p99LatencyMs: +p99.toFixed(2),
+      p99Ms: +p99.toFixed(2),
       throughputQps: +qps.toFixed(2),
+      throughput: +qps.toFixed(2),
       errorCount: errors.length,
       sampleErrors: errors.slice(0, 3),
       timestamp: new Date().toISOString(),
+      meetsRequirement: successRate >= 99.9 && +p99.toFixed(2) <= 2000,
+      confidenceDistribution,
+      tierResults: [],
     }
   }
 
@@ -311,6 +324,13 @@ export class RecommendationService {
       }, 0) / results.length
     ).toFixed(2)
 
+    const satisfactionDistribution = {
+      '≥4.5': results.filter(r => (r.confidence / 100 * 5) >= 4.5).length,
+      '4.0-4.4': results.filter(r => { const s = r.confidence / 100 * 5; return s >= 4.0 && s < 4.5; }).length,
+      '3.5-3.9': results.filter(r => { const s = r.confidence / 100 * 5; return s >= 3.5 && s < 4.0; }).length,
+      '<3.5': results.filter(r => (r.confidence / 100 * 5) < 3.5).length,
+    }
+    const avgRespTime = +(totalMs / results.length).toFixed(2)
     return {
       totalCombinations: results.length,
       validCombinations: validCount,
@@ -318,6 +338,7 @@ export class RecommendationService {
       avgConfidence: +avgConf.toFixed(1),
       avgHistoricalScore: +(results.reduce((s, r) => s + r.score, 0) / results.length).toFixed(2),
       estimatedSatisfaction,
+      avgSatisfaction: estimatedSatisfaction,
       meetsSatisfactionThreshold: estimatedSatisfaction >= 4.0,
       meetsCombinationThreshold: results.length >= 100,
       confidenceDistribution: {
@@ -334,6 +355,7 @@ export class RecommendationService {
       invalidResults: results.filter(r => !r.valid),
       totalTimeMs: +totalMs.toFixed(2),
       avgTimeMs: +(totalMs / results.length).toFixed(3),
+      avgResponseTimeMs: avgRespTime,
       sampleResults: results.slice(0, 15).map(r => ({
         variety: r.beanVariety,
         roast: r.roastLevel,
@@ -346,6 +368,25 @@ export class RecommendationService {
       })),
       generatedAt: new Date().toISOString(),
       passAll: results.length >= 100 && estimatedSatisfaction >= 4.0 && validCount === results.length,
+      overallPass: results.length >= 100 && estimatedSatisfaction >= 4.0 && validCount === results.length,
+      meetsCoverageGate: results.length >= 100,
+      meetsQualityGate: estimatedSatisfaction >= 4.0,
+      meetsPerformanceGate: avgRespTime <= 2000,
+      allValid: validCount === results.length,
+      satisfactionDistribution,
+      lowResults: results
+        .filter(r => r.confidence < 60 || !r.valid)
+        .map(r => ({
+          beanVariety: r.beanVariety,
+          roastLevel: r.roastLevel,
+          ratio: r.ratio,
+          temperature: r.temperature,
+          brewTime: r.brewTime,
+          satisfaction: +(r.confidence / 100 * 5).toFixed(2),
+          ratioDeviation: r.ratio < 12 || r.ratio > 17 ? Math.round(Math.abs((r.ratio - 15) / 15 * 100)) : 0,
+          tempDeviation: r.temperature < 85 || r.temperature > 97 ? Math.round(Math.abs((r.temperature - 92) / 92 * 100)) : 0,
+          timeDeviation: r.brewTime < 1.2 || r.brewTime > 5 ? Math.round(Math.abs((r.brewTime - 3) / 3 * 100)) : 0,
+        })),
     }
   }
 
@@ -382,6 +423,12 @@ export class RecommendationService {
       }
     })
 
+    function _calcGradientNorm(w1, w2) {
+      const sum = Math.pow(w1.typeW - w2.typeW, 2) + Math.pow(w1.varietyW - w2.varietyW, 2) +
+                  Math.pow(w1.roastW - w2.roastW, 2) + Math.pow(w1.processW - w2.processW, 2)
+      return +Math.sqrt(sum).toFixed(4)
+    }
+
     if (bestScore <= oldScore) {
       const record = {
         iteration: this._weightHistory.length + 1,
@@ -395,6 +442,8 @@ export class RecommendationService {
         elapsedMs: +(performance.now() - iterationStart).toFixed(2),
         timestamp: new Date().toISOString(),
         feedbackCount: this._feedbacks.length,
+        gradientNorm: 0,
+        previousWeights: { ...oldWeights },
       }
       this._weightHistory.push(record)
       return record
@@ -404,10 +453,12 @@ export class RecommendationService {
     this._cache.clear()
 
     const improvement = ((bestScore - oldScore) / Math.max(0.0001, oldScore)) * 100
+    const gradNorm = _calcGradientNorm(oldWeights, best)
     const record = {
       iteration: this._weightHistory.length + 1,
       oldWeights,
       newWeights: { ...best },
+      previousWeights: { ...oldWeights },
       oldScore: +oldScore.toFixed(4),
       newScore: +bestScore.toFixed(4),
       improvementPct: +improvement.toFixed(2),
@@ -422,6 +473,7 @@ export class RecommendationService {
       elapsedMs: +(performance.now() - iterationStart).toFixed(2),
       timestamp: new Date().toISOString(),
       feedbackCount: this._feedbacks.length,
+      gradientNorm: gradNorm,
     }
     this._weightHistory.push(record)
     return record
