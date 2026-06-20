@@ -443,11 +443,12 @@ ${e.notes ? `<div class="card-notes">${escapeHtml(e.notes)}</div>` : ''}
     roastCurves.value = await db.roastCurves.toArray()
   }
 
-  async function addBean(bean) {
+  async function addBean(bean, basePrice = 100) {
     const data = { ...bean, createdAt: new Date().toISOString() }
     const id = await db.beans.add(data)
     data.id = id
     beans.value.push(data)
+    await ensureBeanSkus(id, basePrice)
     return id
   }
 
@@ -600,6 +601,16 @@ ${e.notes ? `<div class="card-notes">${escapeHtml(e.notes)}</div>` : ''}
     return data.map((d, i) => ({ ...d, id: ids[i] }))
   }
 
+  async function ensureAllBeanSkus(defaultBasePrice = 100) {
+    const allBeans = beans.value.length > 0 ? beans.value : await db.beans.toArray()
+    const results = []
+    for (const bean of allBeans) {
+      const created = await ensureBeanSkus(bean.id, defaultBasePrice)
+      results.push({ beanId: bean.id, skuCount: created.length })
+    }
+    return results
+  }
+
   function getWeightLabelFn(weight) { return getWeightLabel(weight) }
   function getGrindLabelFn(grind) { return getGrindLabel(grind) }
   function buildSkuNameFn(beanName, weight, grind) { return buildSkuName(beanName, weight, grind) }
@@ -620,7 +631,7 @@ ${e.notes ? `<div class="card-notes">${escapeHtml(e.notes)}</div>` : ''}
     getBeanTraceability, buildQRPayload, buildQRUrl, parseQRPayload,
     buildQRViewUrl, parseViewHash, chunkQRPayload, getChunkQRText, tryParseChunkText, buildStandaloneHtml,
     loadStoredChunks, clearStoredChunks, uploadToJsonbin, fetchFromJsonbin,
-    generateDefaultSkusForBean, ensureBeanSkus,
+    generateDefaultSkusForBean, ensureBeanSkus, ensureAllBeanSkus,
     getWeightLabel: getWeightLabelFn, getGrindLabel: getGrindLabelFn, buildSkuName: buildSkuNameFn,
   }
 })

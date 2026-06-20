@@ -25,6 +25,9 @@ seedDatabase().then(async () => {
   const roastPlanStore = useRoastPlanStore()
 
   await coffeeStore.loadAll()
+
+  await coffeeStore.ensureAllBeanSkus(100)
+
   inventoryStore.setBeanReference(coffeeStore.beans)
   await inventoryStore.loadAll()
   await promotionStore.loadAll()
