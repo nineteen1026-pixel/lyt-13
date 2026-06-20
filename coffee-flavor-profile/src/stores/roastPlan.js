@@ -72,7 +72,8 @@ export const useRoastPlanStore = defineStore('roastPlan', () => {
     const inv = await invStore.getByBeanId(beanId)
     if (!inv) throw new Error('库存记录不存在')
 
-    const availableForRoast = inv.stock - inv.reservedStock - (inv.roastReservedStock || 0)
+    const roastReserved = inv.roastReservedStock || 0
+    const availableForRoast = inv.reservedStock - roastReserved
     if (availableForRoast < quantity) {
       throw new Error(`${beanName || '商品'} 可用于烘焙排产的库存不足`)
     }

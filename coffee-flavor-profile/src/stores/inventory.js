@@ -15,7 +15,8 @@ export const useInventoryStore = defineStore('inventory', () => {
         beanOrigin: bean?.origin || '',
         roastReservedStock: roastReserved,
         availableStock: inv.stock - inv.reservedStock,
-        sellableStock: inv.stock - inv.reservedStock - roastReserved,
+        sellableStock: inv.stock - inv.reservedStock,
+        nonRoastReservedStock: inv.reservedStock - roastReserved,
       }
     })
   })
@@ -71,8 +72,8 @@ export const useInventoryStore = defineStore('inventory', () => {
     const inv = await getByBeanId(beanId)
     if (!inv) throw new Error('库存记录不存在')
     const roastReserved = inv.roastReservedStock || 0
-    const available = inv.stock - inv.reservedStock - roastReserved
-    if (available < quantity) throw new Error('可用于烘焙排产的库存不足')
+    const availableForRoast = inv.reservedStock - roastReserved
+    if (availableForRoast < quantity) throw new Error('可用于烘焙排产的库存不足')
 
     const newRoastReserved = roastReserved + quantity
     await updateInventory(inv.id, { roastReservedStock: newRoastReserved })
