@@ -66,11 +66,18 @@
                 v-for="rec in personalRecommendations"
                 :key="rec.bean.id"
                 class="bean-recommend-card"
+                :class="{ 'card-presale': rec.stockStatus === recStore.STOCK_STATUS.PRESALE, 'card-out': rec.stockStatus === recStore.STOCK_STATUS.OUT_OF_STOCK || rec.stockStatus === recStore.STOCK_STATUS.OFF_SHELF }"
                 @click="selectBean(rec.bean)"
               >
                 <div class="recommend-header">
                   <div>
-                    <div class="bean-name">{{ rec.bean.name }}</div>
+                    <div class="bean-name">
+                      {{ rec.bean.name }}
+                      <span v-if="rec.stockStatus === recStore.STOCK_STATUS.PRESALE" class="stock-badge presale">预售</span>
+                      <span v-else-if="rec.stockStatus === recStore.STOCK_STATUS.OUT_OF_STOCK" class="stock-badge out">缺货</span>
+                      <span v-else-if="rec.stockStatus === recStore.STOCK_STATUS.OFF_SHELF" class="stock-badge off">下架</span>
+                      <span v-else class="stock-badge in">有货</span>
+                    </div>
                     <div class="bean-meta">
                       <span class="tag">{{ rec.bean.origin }}</span>
                       <span class="tag">{{ rec.bean.process }}</span>
@@ -102,6 +109,28 @@
                       {{ rec.highlights.extraction.ratio }} · {{ rec.highlights.extraction.temperature }}°C · {{ rec.highlights.extraction.time }}
                     </span>
                   </div>
+                </div>
+                <div class="card-footer">
+                  <div class="price-section">
+                    <span v-if="rec.inventory && rec.stockStatus === recStore.STOCK_STATUS.PRESALE" class="price presale-price">
+                      ¥{{ rec.inventory.presalePrice.toFixed(2) }}
+                      <span class="price-label">预售价</span>
+                    </span>
+                    <span v-else-if="rec.inventory" class="price normal-price">
+                      ¥{{ rec.inventory.price.toFixed(2) }}
+                      <span class="price-label" v-if="rec.stockStatus === recStore.STOCK_STATUS.IN_STOCK">售价</span>
+                    </span>
+                    <span v-if="rec.inventory && rec.stockStatus === recStore.STOCK_STATUS.IN_STOCK" class="stock-info">
+                      库存: {{ rec.inventory.availableStock }}
+                    </span>
+                  </div>
+                  <button
+                    class="btn-cart"
+                    :disabled="rec.stockStatus === recStore.STOCK_STATUS.OUT_OF_STOCK || rec.stockStatus === recStore.STOCK_STATUS.OFF_SHELF"
+                    @click.stop="openQuickOrder(rec)"
+                  >
+                    {{ rec.stockStatus === recStore.STOCK_STATUS.PRESALE ? '🔔 预售下单' : '🛒 立即购买' }}
+                  </button>
                 </div>
               </div>
             </div>
@@ -137,11 +166,18 @@
               v-for="rec in similarRecommendations"
               :key="rec.bean.id"
               class="bean-recommend-card"
+              :class="{ 'card-presale': rec.stockStatus === recStore.STOCK_STATUS.PRESALE, 'card-out': rec.stockStatus === recStore.STOCK_STATUS.OUT_OF_STOCK || rec.stockStatus === recStore.STOCK_STATUS.OFF_SHELF }"
               @click="selectBean(rec.bean)"
             >
               <div class="recommend-header">
                 <div>
-                  <div class="bean-name">{{ rec.bean.name }}</div>
+                  <div class="bean-name">
+                    {{ rec.bean.name }}
+                    <span v-if="rec.stockStatus === recStore.STOCK_STATUS.PRESALE" class="stock-badge presale">预售</span>
+                    <span v-else-if="rec.stockStatus === recStore.STOCK_STATUS.OUT_OF_STOCK" class="stock-badge out">缺货</span>
+                    <span v-else-if="rec.stockStatus === recStore.STOCK_STATUS.OFF_SHELF" class="stock-badge off">下架</span>
+                    <span v-else class="stock-badge in">有货</span>
+                  </div>
                   <div class="bean-meta">
                     <span class="tag">{{ rec.bean.origin }}</span>
                     <span class="tag">{{ rec.bean.process }}</span>
@@ -170,7 +206,129 @@
                   </span>
                 </div>
               </div>
+              <div class="card-footer">
+                <div class="price-section">
+                  <span v-if="rec.inventory && rec.stockStatus === recStore.STOCK_STATUS.PRESALE" class="price presale-price">
+                    ¥{{ rec.inventory.presalePrice.toFixed(2) }}
+                    <span class="price-label">预售价</span>
+                  </span>
+                  <span v-else-if="rec.inventory" class="price normal-price">
+                    ¥{{ rec.inventory.price.toFixed(2) }}
+                    <span class="price-label" v-if="rec.stockStatus === recStore.STOCK_STATUS.IN_STOCK">售价</span>
+                  </span>
+                  <span v-if="rec.inventory && rec.stockStatus === recStore.STOCK_STATUS.IN_STOCK" class="stock-info">
+                    库存: {{ rec.inventory.availableStock }}
+                  </span>
+                </div>
+                <button
+                  class="btn-cart"
+                  :disabled="rec.stockStatus === recStore.STOCK_STATUS.OUT_OF_STOCK || rec.stockStatus === recStore.STOCK_STATUS.OFF_SHELF"
+                  @click.stop="openQuickOrder(rec)"
+                >
+                  {{ rec.stockStatus === recStore.STOCK_STATUS.PRESALE ? '🔔 预售下单' : '🛒 立即购买' }}
+                </button>
+              </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="showQuickOrder" class="quick-order-modal" @click.self="showQuickOrder = false">
+        <div class="quick-order-panel">
+          <div class="quick-order-header">
+            <h3>🛒 快速下单</h3>
+            <button class="btn-close" @click="showQuickOrder = false">×</button>
+          </div>
+
+          <div v-if="quickOrderData.bean" class="quick-order-content">
+            <div class="order-bean-info">
+              <div class="order-bean-name">{{ quickOrderData.bean.name }}</div>
+              <div class="order-bean-meta">
+                <span class="tag">{{ quickOrderData.bean.origin }}</span>
+                <span class="tag">{{ quickOrderData.bean.process }}</span>
+                <span
+                  class="tag stock-tag"
+                  :class="{
+                    'tag-in': quickOrderData.stockStatus === recStore.STOCK_STATUS.IN_STOCK,
+                    'tag-presale': quickOrderData.stockStatus === recStore.STOCK_STATUS.PRESALE,
+                    'tag-out': quickOrderData.stockStatus === recStore.STOCK_STATUS.OUT_OF_STOCK,
+                  }"
+                >
+                  {{ quickOrderData.stockStatus === recStore.STOCK_STATUS.IN_STOCK ? '有货' : quickOrderData.stockStatus === recStore.STOCK_STATUS.PRESALE ? '预售' : '缺货' }}
+                </span>
+              </div>
+              <div v-if="quickOrderData.bean.flavorTags?.length" class="bean-flavor-tags">
+                <span v-for="tag in quickOrderData.bean.flavorTags" :key="tag" class="flavor-tag">{{ tag }}</span>
+              </div>
+            </div>
+
+            <div class="order-price-section">
+              <div v-if="quickOrderData.stockStatus === recStore.STOCK_STATUS.PRESALE" class="price-row">
+                <span>预售价:</span>
+                <span class="price-value presale">¥{{ quickOrderData.inventory?.presalePrice?.toFixed(2) }}</span>
+              </div>
+              <div class="price-row">
+                <span>售价:</span>
+                <span class="price-value">¥{{ quickOrderData.inventory?.price?.toFixed(2) }}</span>
+              </div>
+              <div v-if="quickOrderData.stockStatus === recStore.STOCK_STATUS.PRESALE" class="price-row">
+                <span>定金:</span>
+                <span class="price-value">¥{{ quickOrderData.inventory?.deposit?.toFixed(2) }}</span>
+              </div>
+              <div v-if="quickOrderData.stockStatus === recStore.STOCK_STATUS.IN_STOCK" class="price-row">
+                <span>可用库存:</span>
+                <span class="stock-value">{{ quickOrderData.inventory?.availableStock }}</span>
+              </div>
+            </div>
+
+            <div class="order-quantity-section">
+              <label>购买数量:</label>
+              <div class="quantity-control">
+                <button class="qty-btn" @click="decreaseQty">-</button>
+                <input
+                  type="number"
+                  v-model.number="orderForm.quantity"
+                  min="1"
+                  :max="quickOrderData.inventory?.availableStock || 999"
+                  class="qty-input"
+                />
+                <button class="qty-btn" @click="increaseQty">+</button>
+              </div>
+            </div>
+
+            <div class="order-customer-section">
+              <div class="form-group">
+                <label>客户姓名</label>
+                <input v-model="orderForm.customerName" placeholder="请输入客户姓名" />
+              </div>
+              <div class="form-group">
+                <label>联系电话</label>
+                <input v-model="orderForm.customerPhone" placeholder="请输入联系电话" />
+              </div>
+            </div>
+
+            <div class="order-summary">
+              <div class="summary-row">
+                <span>商品金额:</span>
+                <span>¥{{ orderSummary.subtotal.toFixed(2) }}</span>
+              </div>
+              <div v-if="quickOrderData.stockStatus === recStore.STOCK_STATUS.PRESALE" class="summary-row">
+                <span>定金:</span>
+                <span>¥{{ orderSummary.deposit.toFixed(2) }}</span>
+              </div>
+              <div class="summary-row total">
+                <span>应付金额:</span>
+                <span>¥{{ orderSummary.total.toFixed(2) }}</span>
+              </div>
+            </div>
+
+            <button
+              class="btn btn-primary btn-submit-order"
+              :disabled="!canSubmitOrder"
+              @click="submitQuickOrder"
+            >
+              {{ quickOrderData.stockStatus === recStore.STOCK_STATUS.PRESALE ? '提交预售订单' : '提交订单' }}
+            </button>
           </div>
         </div>
       </div>
@@ -273,20 +431,34 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { useCoffeeStore } from '../stores/coffee.js'
 import { useRecommendationStore } from '../stores/recommendation.js'
+import { useOrderStore, ORDER_TYPE } from '../stores/order.js'
 
 const DIMENSIONS = ['酸度', '甜度', '醇厚度', '余韵', '平衡']
 
 const coffeeStore = useCoffeeStore()
 const recStore = useRecommendationStore()
+const orderStore = useOrderStore()
 
 const recommendMode = ref('personal')
 const selectedBeanId = ref('')
 const detailBean = ref(null)
 const detailTab = ref('roast')
 const selectedRoastForExtraction = ref('')
+
+const showQuickOrder = ref(false)
+const quickOrderData = ref({
+  bean: null,
+  inventory: null,
+  stockStatus: null,
+})
+const orderForm = reactive({
+  quantity: 1,
+  customerName: '',
+  customerPhone: '',
+})
 
 const userPreferenceVector = computed(() => recStore.getUserPreferenceVector() || [5, 5, 5, 5, 5])
 const preferredTags = computed(() => recStore.getUserPreferredFlavorTags())
@@ -332,6 +504,78 @@ function selectBean(bean) {
   const roastRecs = recStore.recommendRoastLevel(bean.id)
   selectedRoastForExtraction.value = roastRecs[0]?.level || ''
   detailTab.value = 'roast'
+}
+
+const orderSummary = computed(() => {
+  const inv = quickOrderData.value.inventory
+  const qty = orderForm.quantity || 0
+  if (!inv || qty <= 0) {
+    return { subtotal: 0, deposit: 0, total: 0 }
+  }
+  const isPresale = quickOrderData.value.stockStatus === recStore.STOCK_STATUS.PRESALE
+  const unitPrice = isPresale ? inv.presalePrice : inv.price
+  const subtotal = +(unitPrice * qty).toFixed(2)
+  const deposit = isPresale ? +(inv.deposit * qty).toFixed(2) : subtotal
+  return { subtotal, deposit, total: subtotal }
+})
+
+const canSubmitOrder = computed(() => {
+  return (
+    orderForm.quantity > 0 &&
+    orderForm.customerName.trim() &&
+    orderForm.customerPhone.trim() &&
+    quickOrderData.value.bean
+  )
+})
+
+function openQuickOrder(rec) {
+  quickOrderData.value = {
+    bean: rec.bean,
+    inventory: rec.inventory,
+    stockStatus: rec.stockStatus,
+  }
+  orderForm.quantity = 1
+  orderForm.customerName = ''
+  orderForm.customerPhone = ''
+  showQuickOrder.value = true
+}
+
+function increaseQty() {
+  const maxStock = quickOrderData.value.inventory?.availableStock || 999
+  if (orderForm.quantity < maxStock) {
+    orderForm.quantity++
+  }
+}
+
+function decreaseQty() {
+  if (orderForm.quantity > 1) {
+    orderForm.quantity--
+  }
+}
+
+async function submitQuickOrder() {
+  if (!canSubmitOrder.value) return
+
+  const isPresale = quickOrderData.value.stockStatus === recStore.STOCK_STATUS.PRESALE
+  const orderType = isPresale ? ORDER_TYPE.PRESALE : ORDER_TYPE.NORMAL
+
+  try {
+    const order = await orderStore.createOrder({
+      type: orderType,
+      items: [
+        {
+          beanId: quickOrderData.value.bean.id,
+          quantity: orderForm.quantity,
+        },
+      ],
+      customerName: orderForm.customerName.trim(),
+      customerPhone: orderForm.customerPhone.trim(),
+    })
+    alert(`订单创建成功！\n订单号: ${order.orderNo}\n应付金额: ¥${order.payAmount.toFixed(2)}${isPresale ? `\n定金: ¥${order.depositAmount.toFixed(2)}` : ''}`)
+    showQuickOrder.value = false
+  } catch (e) {
+    alert('创建订单失败: ' + e.message)
+  }
 }
 </script>
 
@@ -796,5 +1040,385 @@ function selectBean(bean) {
   color: #6F4E37;
   font-weight: 500;
   margin-left: 4px;
+}
+
+.stock-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.stock-badge.in {
+  background: #D1FAE5;
+  color: #065F46;
+}
+
+.stock-badge.presale {
+  background: #FEE2E2;
+  color: #991B1B;
+}
+
+.stock-badge.out {
+  background: #F3F4F6;
+  color: #6B7280;
+}
+
+.stock-badge.off {
+  background: #F3F4F6;
+  color: #6B7280;
+}
+
+.bean-recommend-card.card-presale {
+  border-color: #FCA5A5;
+  background: #FEF2F2;
+}
+
+.bean-recommend-card.card-out {
+  opacity: 0.6;
+}
+
+.card-footer {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed #E8D5B7;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.price-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.price {
+  font-weight: 700;
+  color: #3E2C1C;
+  font-size: 16px;
+}
+
+.price .price-label {
+  font-size: 11px;
+  font-weight: 400;
+  color: #8B7355;
+  margin-left: 4px;
+}
+
+.price.presale-price {
+  color: #C0392B;
+}
+
+.stock-info {
+  font-size: 11px;
+  color: #065F46;
+  background: #D1FAE5;
+  padding: 1px 6px;
+  border-radius: 8px;
+  display: inline-block;
+  margin-top: 2px;
+  width: fit-content;
+}
+
+.btn-cart {
+  padding: 6px 14px;
+  background: linear-gradient(135deg, #6F4E37, #8B6914);
+  color: #FFF8F0;
+  border: none;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.btn-cart:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(62, 44, 28, 0.25);
+}
+
+.btn-cart:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.quick-order-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.quick-order-panel {
+  background: #FFFDF9;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 420px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  animation: modalSlideIn 0.3s ease;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.quick-order-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 20px;
+  border-bottom: 1px solid #EDE0D0;
+  position: sticky;
+  top: 0;
+  background: #FFFDF9;
+  z-index: 1;
+  border-radius: 16px 16px 0 0;
+}
+
+.quick-order-header h3 {
+  font-size: 17px;
+  font-weight: 600;
+  color: #3E2C1C;
+  margin: 0;
+}
+
+.btn-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: #F0E0D0;
+  color: #6F4E37;
+  border-radius: 50%;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.btn-close:hover {
+  background: #E0D0B8;
+}
+
+.quick-order-content {
+  padding: 20px;
+}
+
+.order-bean-info {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px dashed #E8D5B7;
+}
+
+.order-bean-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: #3E2C1C;
+  margin-bottom: 6px;
+}
+
+.order-bean-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.stock-tag.tag-in {
+  background: #D1FAE5;
+  color: #065F46;
+}
+
+.stock-tag.tag-presale {
+  background: #FEE2E2;
+  color: #991B1B;
+}
+
+.stock-tag.tag-out {
+  background: #F3F4F6;
+  color: #6B7280;
+}
+
+.order-price-section {
+  background: #FFF8F0;
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.order-price-section .price-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 14px;
+  color: #6F4E37;
+}
+
+.order-price-section .price-value {
+  font-weight: 600;
+  color: #3E2C1C;
+}
+
+.order-price-section .price-value.presale {
+  color: #C0392B;
+}
+
+.order-price-section .stock-value {
+  font-weight: 600;
+  color: #065F46;
+}
+
+.order-quantity-section {
+  margin-bottom: 16px;
+}
+
+.order-quantity-section label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: #6F4E37;
+  margin-bottom: 8px;
+}
+
+.quantity-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.qty-btn {
+  width: 36px;
+  height: 36px;
+  border: 1.5px solid #D2B48C;
+  background: #FFFDF9;
+  color: #6F4E37;
+  border-radius: 8px;
+  font-size: 18px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.qty-btn:hover {
+  background: #F0E0D0;
+}
+
+.qty-input {
+  width: 80px;
+  text-align: center;
+  padding: 8px 10px;
+  border: 1.5px solid #D2B48C;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #3E2C1C;
+  background: #FFFCF7;
+}
+
+.order-customer-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.order-customer-section .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.order-customer-section label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #6F4E37;
+}
+
+.order-customer-section input {
+  padding: 10px 12px;
+  border: 1.5px solid #D2B48C;
+  border-radius: 8px;
+  font-size: 14px;
+  background: #FFFCF7;
+  color: #3E2C1C;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.order-customer-section input:focus {
+  border-color: #6F4E37;
+}
+
+.order-summary {
+  background: #FFF8F0;
+  border: 1px solid #E8D5B7;
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.order-summary .summary-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 14px;
+  color: #6F4E37;
+}
+
+.order-summary .summary-row.total {
+  font-size: 16px;
+  font-weight: 600;
+  color: #3E2C1C;
+  border-top: 1px dashed #E8D5B7;
+  margin-top: 6px;
+  padding-top: 10px;
+}
+
+.btn-submit-order {
+  width: 100%;
+  padding: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #6F4E37, #8B6914);
+  color: #FFF8F0;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-submit-order:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(62, 44, 28, 0.25);
+}
+
+.btn-submit-order:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

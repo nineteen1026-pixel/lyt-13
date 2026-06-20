@@ -1,8 +1,16 @@
 import { defineStore } from 'pinia'
 import { computed } from 'vue'
 import { useCoffeeStore } from './coffee.js'
+import { useInventoryStore } from './inventory.js'
 
 const DIM_KEYS = ['acidity', 'sweetness', 'body', 'aftertaste', 'balance']
+
+const STOCK_STATUS = {
+  IN_STOCK: 'in_stock',
+  PRESALE: 'presale',
+  OUT_OF_STOCK: 'out_of_stock',
+  OFF_SHELF: 'off_shelf',
+}
 
 const ROAST_LEVELS = ['极浅烘焙', '浅烘焙', '中浅烘焙', '中烘焙', '中深烘焙', '深烘焙', '极深烘焙']
 
@@ -55,6 +63,31 @@ const METHOD_PARAMS = {
 
 export const useRecommendationStore = defineStore('recommendation', () => {
   const coffeeStore = useCoffeeStore()
+  const invStore = useInventoryStore()
+
+  function getBeanInventory(beanId) {
+    return invStore.inventoryList.find(i => i.beanId === beanId) || null
+  }
+
+  function getStockStatus(beanId) {
+    const inv = getBeanInventory(beanId)
+    if (!inv) return STOCK_STATUS.OUT_OF_STOCK
+    if (inv.status === 'off_shelf') return STOCK_STATUS.OFF_SHELF
+    const available = inv.stock - inv.reservedStock
+    if (available > 0) return STOCK_STATUS.IN_STOCK
+    if (inv.status === 'presale') return STOCK_STATUS.PRESALE
+    return STOCK_STATUS.OUT_OF_STOCK
+  }
+
+  function getStockPriority(status) {
+    switch (status) {
+      case STOCK_STATUS.IN_STOCK: return 3
+      case STOCK_STATUS.PRESALE: return 2
+      case STOCK_STATUS.OUT_OF_STOCK: return 1
+      case STOCK_STATUS.OFF_SHELF: return 0
+      default: return 1
+    }
+  }
 
   function cosineSimilarity(vecA, vecB) {
     if (!vecA || !vecB || vecA.length !== vecB.length) return 0
@@ -159,16 +192,35 @@ export const useRecommendationStore = defineStore('recommendation', () => {
       if (bean.id === beanId) return
       const similarity = calculateBeanSimilarity(beanId, bean.id)
       if (similarity > 0) {
+        const stockStatus = getStockStatus(bean.id)
+        const inventory = getBeanInventory(bean.id)
+        const stockPriority = getStockPriority(stockStatus)
         results.push({
           bean,
           similarity: +similarity.toFixed(3),
           similarityPercent: Math.round(similarity * 100),
+          stockStatus,
+          stockPriority,
+          inventory: inventory ? {
+            stock: inventory.stock,
+            reservedStock: inventory.reservedStock,
+            availableStock: inventory.stock - inventory.reservedStock,
+            price: inventory.price,
+            presalePrice: inventory.presalePrice,
+            deposit: inventory.deposit,
+            status: inventory.status,
+          } : null,
         })
       }
     })
 
     return results
-      .sort((a, b) => b.similarity - a.similarity)
+      .sort((a, b) => {
+        if (b.stockPriority !== a.stockPriority) {
+          return b.stockPriority - a.stockPriority
+        }
+        return b.similarity - a.similarity
+      })
       .slice(0, topN)
   }
 
@@ -207,6 +259,9 @@ export const useRecommendationStore = defineStore('recommendation', () => {
       }
 
       if (hasRatingScore || hasTagScore) {
+        const stockStatus = getStockStatus(bean.id)
+        const inventory = getBeanInventory(bean.id)
+        const stockPriority = getStockPriority(stockStatus)
         results.push({
           bean,
           similarity: +score.toFixed(3),
@@ -215,12 +270,28 @@ export const useRecommendationStore = defineStore('recommendation', () => {
             ratingMatch: hasRatingScore,
             tagMatch: hasTagScore,
           },
+          stockStatus,
+          stockPriority,
+          inventory: inventory ? {
+            stock: inventory.stock,
+            reservedStock: inventory.reservedStock,
+            availableStock: inventory.stock - inventory.reservedStock,
+            price: inventory.price,
+            presalePrice: inventory.presalePrice,
+            deposit: inventory.deposit,
+            status: inventory.status,
+          } : null,
         })
       }
     })
 
     return results
-      .sort((a, b) => b.similarity - a.similarity)
+      .sort((a, b) => {
+        if (b.stockPriority !== a.stockPriority) {
+          return b.stockPriority - a.stockPriority
+        }
+        return b.similarity - a.similarity
+      })
       .slice(0, topN)
   }
 
@@ -474,6 +545,10 @@ export const useRecommendationStore = defineStore('recommendation', () => {
     recommendRoastLevel,
     recommendExtractionParams,
     getBeanRecommendHighlights,
+    getBeanInventory,
+    getStockStatus,
+    getStockPriority,
+    STOCK_STATUS,
     hasUserPreferences,
     hasEnoughData,
   }
