@@ -168,11 +168,13 @@ export const useOrderStore = defineStore('order', () => {
     const roastPlanStore = useRoastPlanStore()
     const items = orderItems.value.filter(i => i.orderId === order.id)
 
-    for (const item of items) {
-      try {
-        await invStore.releaseStock(item.beanId, item.quantity)
-      } catch (e) {
-        console.error('释放库存失败:', e)
+    if (order.type === ORDER_TYPE.NORMAL) {
+      for (const item of items) {
+        try {
+          await invStore.releaseStock(item.beanId, item.quantity)
+        } catch (e) {
+          console.error('释放库存失败:', e)
+        }
       }
     }
 
@@ -216,9 +218,13 @@ export const useOrderStore = defineStore('order', () => {
       const inv = await invStore.getByBeanId(item.beanId)
       if (!inv) throw new Error(`商品 ID ${item.beanId} 库存不存在`)
 
-      const available = inv.stock - inv.reservedStock
-      if (available < item.quantity) {
-        throw new Error(`${inv.beanName || '商品'} 库存不足`)
+      if (type === ORDER_TYPE.NORMAL) {
+        const available = inv.stock - inv.reservedStock
+        if (available < item.quantity) {
+          throw new Error(`${inv.beanName || '商品'} 库存不足`)
+        }
+      } else if (type === ORDER_TYPE.PRESALE && inv.status !== 'presale') {
+        throw new Error(`${inv.beanName || '商品'} 未开启预售`)
       }
 
       let unitPrice = type === ORDER_TYPE.PRESALE ? inv.presalePrice : inv.price
@@ -337,7 +343,9 @@ export const useOrderStore = defineStore('order', () => {
         item.createdAt = now.toISOString()
         const itemId = await db.orderItems.add(item)
         item.id = itemId
-        await invStore.reserveStock(item.beanId, item.quantity)
+        if (type === ORDER_TYPE.NORMAL) {
+          await invStore.reserveStock(item.beanId, item.quantity)
+        }
       }
 
       if (finalPromotionId && promoDiscount > 0) {

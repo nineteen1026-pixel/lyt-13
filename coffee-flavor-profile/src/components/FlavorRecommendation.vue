@@ -289,7 +289,7 @@
                   type="number"
                   v-model.number="orderForm.quantity"
                   min="1"
-                  :max="quickOrderData.inventory?.availableStock || 999"
+                  :max="maxQuantity"
                   class="qty-input"
                 />
                 <button class="qty-btn" @click="increaseQty">+</button>
@@ -528,6 +528,12 @@ const canSubmitOrder = computed(() => {
   )
 })
 
+const maxQuantity = computed(() => {
+  const isPresale = quickOrderData.value.stockStatus === recStore.STOCK_STATUS.PRESALE
+  if (isPresale) return 999
+  return quickOrderData.value.inventory?.availableStock || 999
+})
+
 function openQuickOrder(rec) {
   quickOrderData.value = {
     bean: rec.bean,
@@ -541,8 +547,7 @@ function openQuickOrder(rec) {
 }
 
 function increaseQty() {
-  const maxStock = quickOrderData.value.inventory?.availableStock || 999
-  if (orderForm.quantity < maxStock) {
+  if (orderForm.quantity < maxQuantity.value) {
     orderForm.quantity++
   }
 }
