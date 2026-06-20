@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import db from '../db.js'
+import db, { getWeightLabel, getGrindLabel, buildSkuName } from '../db.js'
 import { useInventoryStore } from './inventory.js'
 import { usePromotionStore } from './promotion.js'
 import { useCouponStore } from './coupon.js'
@@ -60,7 +60,12 @@ export const useOrderStore = defineStore('order', () => {
       )
       return {
         ...order,
-        items,
+        items: items.map(item => ({
+          ...item,
+          skuName: buildSkuName(item.beanName, item.skuWeight, item.skuGrind),
+          skuWeightLabel: getWeightLabel(item.skuWeight),
+          skuGrindLabel: getGrindLabel(item.skuGrind),
+        })),
         payments: orderPayments,
         reminders: orderReminders,
         roastPlans,
@@ -171,9 +176,9 @@ export const useOrderStore = defineStore('order', () => {
     if (order.type === ORDER_TYPE.NORMAL) {
       for (const item of items) {
         try {
-          await invStore.releaseStock(item.beanId, item.quantity)
+          await invStore.releaseStock(item.skuId, item.quantity)
         } catch (e) {
-          console.error('释放库存失败:', e)
+          console.error('释放SKU库存失败:', e)
         }
       }
     }
@@ -215,32 +220,40 @@ export const useOrderStore = defineStore('order', () => {
     const beanIds = []
 
     for (const item of items) {
-      const inv = await invStore.getByBeanId(item.beanId)
-      if (!inv) throw new Error(`商品 ID ${item.beanId} 库存不存在`)
+      const sku = await invStore.getBySkuId(item.skuId)
+      if (!sku) throw new Error(`SKU ID ${item.skuId} 库存不存在`)
 
       if (type === ORDER_TYPE.NORMAL) {
-        const available = inv.stock - inv.reservedStock
+        const available = sku.stock - sku.reservedStock
         if (available < item.quantity) {
-          throw new Error(`${inv.beanName || '商品'} 库存不足`)
+          const bean = window.__coffeeBeans?.find(b => b.id === sku.beanId)
+          const skuName = buildSkuName(bean?.name || '商品', sku.weight, sku.grind)
+          throw new Error(`${skuName} 库存不足`)
         }
-      } else if (type === ORDER_TYPE.PRESALE && inv.status !== 'presale') {
-        throw new Error(`${inv.beanName || '商品'} 未开启预售`)
+      } else if (type === ORDER_TYPE.PRESALE && sku.status !== 'presale') {
+        const bean = window.__coffeeBeans?.find(b => b.id === sku.beanId)
+        const skuName = buildSkuName(bean?.name || '商品', sku.weight, sku.grind)
+        throw new Error(`${skuName} 未开启预售`)
       }
 
-      let unitPrice = type === ORDER_TYPE.PRESALE ? inv.presalePrice : inv.price
+      let unitPrice = type === ORDER_TYPE.PRESALE ? sku.presalePrice : sku.price
       const subtotal = +(unitPrice * item.quantity).toFixed(2)
 
-      const bean = window.__coffeeBeans?.find(b => b.id === item.beanId)
+      const bean = window.__coffeeBeans?.find(b => b.id === sku.beanId)
       orderItemsData.push({
-        beanId: item.beanId,
+        beanId: sku.beanId,
         beanName: bean?.name || '未知豆种',
+        skuId: sku.id,
+        skuCode: sku.skuCode,
+        skuWeight: sku.weight,
+        skuGrind: sku.grind,
         quantity: item.quantity,
         unitPrice,
         subtotal,
         discount: 0,
       })
 
-      beanIds.push(item.beanId)
+      if (!beanIds.includes(sku.beanId)) beanIds.push(sku.beanId)
       totalAmount += subtotal
     }
 
@@ -291,8 +304,8 @@ export const useOrderStore = defineStore('order', () => {
 
     if (type === ORDER_TYPE.PRESALE) {
       for (const item of orderItemsData) {
-        const inv = await invStore.getByBeanId(item.beanId)
-        depositAmount += +(inv.deposit * item.quantity).toFixed(2)
+        const sku = await invStore.getBySkuId(item.skuId)
+        depositAmount += +(sku.deposit * item.quantity).toFixed(2)
       }
       depositAmount = +depositAmount.toFixed(2)
       balanceAmount = +(payAmount - depositAmount).toFixed(2)
@@ -334,7 +347,7 @@ export const useOrderStore = defineStore('order', () => {
       updatedAt: now.toISOString(),
     }
 
-    return await db.transaction('rw', db.orders, db.orderItems, db.inventory, db.promotionRedemptions, db.coupons, db.roastPlans, async () => {
+    return await db.transaction('rw', db.orders, db.orderItems, db.beanSkus, db.promotionRedemptions, db.coupons, db.roastPlans, async () => {
       const orderId = await db.orders.add(orderData)
       orderData.id = orderId
 
@@ -344,7 +357,7 @@ export const useOrderStore = defineStore('order', () => {
         const itemId = await db.orderItems.add(item)
         item.id = itemId
         if (type === ORDER_TYPE.NORMAL) {
-          await invStore.reserveStock(item.beanId, item.quantity)
+          await invStore.reserveStock(item.skuId, item.quantity)
         }
       }
 
@@ -375,8 +388,11 @@ export const useOrderStore = defineStore('order', () => {
             orderItemId: item.id,
             beanId: item.beanId,
             beanName: item.beanName,
+            skuId: item.skuId,
+            skuWeight: item.skuWeight,
+            skuGrind: item.skuGrind,
             quantity: item.quantity,
-            notes: `订单 ${orderData.orderNo} - ${item.beanName}`,
+            notes: `订单 ${orderData.orderNo} - ${buildSkuName(item.beanName, item.skuWeight, item.skuGrind)}`,
             isPresale: true,
           })
           plans.push(plan)
@@ -416,7 +432,7 @@ export const useOrderStore = defineStore('order', () => {
       createdAt: now.toISOString(),
     }
 
-    await db.transaction('rw', db.orders, db.payments, async () => {
+    await db.transaction('rw', db.orders, db.payments, db.beanSkus, async () => {
       const paymentId = await db.payments.add(paymentData)
       paymentData.id = paymentId
       payments.value.push(paymentData)
@@ -436,7 +452,7 @@ export const useOrderStore = defineStore('order', () => {
         updateData.status = newStatus
         const items = orderItems.value.filter(i => i.orderId === orderId)
         for (const item of items) {
-          await invStore.deductStock(item.beanId, item.quantity)
+          await invStore.deductStock(item.skuId, item.quantity)
         }
       }
 
@@ -468,7 +484,7 @@ export const useOrderStore = defineStore('order', () => {
       createdAt: now.toISOString(),
     }
 
-    await db.transaction('rw', db.orders, db.payments, db.inventory, async () => {
+    await db.transaction('rw', db.orders, db.payments, db.beanSkus, async () => {
       const paymentId = await db.payments.add(paymentData)
       paymentData.id = paymentId
       payments.value.push(paymentData)
@@ -482,7 +498,7 @@ export const useOrderStore = defineStore('order', () => {
 
       const items = orderItems.value.filter(i => i.orderId === orderId)
       for (const item of items) {
-        await invStore.deductStock(item.beanId, item.quantity)
+        await invStore.deductStock(item.skuId, item.quantity)
       }
 
       const idx = orders.value.findIndex(o => o.id === orderId)
@@ -604,6 +620,9 @@ export const useOrderStore = defineStore('order', () => {
         orderId,
         beanId: item.beanId,
         beanName: item.beanName,
+        skuId: item.skuId,
+        skuWeight: item.skuWeight,
+        skuGrind: item.skuGrind,
         qrUrl: coffeeStore.buildQRUrl(item.beanId),
         qrData: coffeeStore.buildQRPayload(item.beanId, snapshot),
         snapshot: JSON.stringify(snapshot),

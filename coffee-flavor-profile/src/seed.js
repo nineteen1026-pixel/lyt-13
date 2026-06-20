@@ -1,4 +1,8 @@
-import db from './db.js'
+import db, {
+  WEIGHT_OPTIONS,
+  GRIND_OPTIONS,
+  generateSkuCode,
+} from './db.js'
 import { generateAllSeedRecords } from './utils/recommendationAlgo.js'
 
 const SEED_BEANS = [
@@ -7,6 +11,88 @@ const SEED_BEANS = [
   { name: '瑰夏·翡翠庄园', origin: '巴拿马', variety: 'Geisha', process: '日晒', flavorTags: ['花香', '茉莉', '桃子', '热带水果', '蜂蜜'] },
   { name: '哥伦比亚·慧兰', origin: '哥伦比亚', variety: 'Caturra', process: '水洗', flavorTags: ['焦糖', '红糖', '坚果', '巧克力', '杏子'] },
 ]
+
+const BEAN_BASE_PRICES = {
+  1: 128.00,
+  2: 98.00,
+  3: 388.00,
+  4: 118.00,
+}
+
+const WEIGHT_MULTIPLIERS = {
+  100: 1.0,
+  250: 2.3,
+  500: 4.3,
+  1000: 8.0,
+}
+
+const GRIND_SURCHARGE = {
+  bean: 0,
+  coarse: 0,
+  medium: 0,
+  fine: 2,
+}
+
+const BEAN_PRESET_STOCK = {
+  1: { 100: 10, 250: 35, 500: 15, 1000: 5 },
+  2: { 100: 8, 250: 28, 500: 12, 1000: 4 },
+  3: { 100: 0, 250: 0, 500: 0, 1000: 0 },
+  4: { 100: 5, 250: 20, 500: 10, 1000: 3 },
+}
+
+const PRESALE_BEAN_IDS = new Set([3])
+
+function buildSkusForBean(beanId, basePrice, nowStr) {
+  const skus = []
+  const isPresaleBean = PRESALE_BEAN_IDS.has(beanId)
+  const stockMap = BEAN_PRESET_STOCK[beanId] || { 100: 0, 250: 0, 500: 0, 1000: 0 }
+
+  for (const weight of WEIGHT_OPTIONS.map(o => o.value)) {
+    for (const grind of GRIND_OPTIONS.map(o => o.value)) {
+      const mult = WEIGHT_MULTIPLIERS[weight] || 1
+      const surcharge = GRIND_SURCHARGE[grind] || 0
+      const price = +(basePrice * mult + surcharge).toFixed(2)
+      const presalePrice = +(price * 0.85).toFixed(2)
+      const deposit = +(price * 0.30).toFixed(2)
+
+      let status = 'on_sale'
+      let stock = stockMap[weight] || 0
+
+      if (isPresaleBean) {
+        status = 'presale'
+        stock = 0
+      } else if (stock === 0) {
+        status = 'presale'
+      }
+
+      skus.push({
+        beanId,
+        skuCode: generateSkuCode(weight, grind),
+        weight,
+        grind,
+        stock,
+        reservedStock: 0,
+        roastReservedStock: 0,
+        price,
+        presalePrice,
+        deposit,
+        status,
+        updatedAt: nowStr,
+      })
+    }
+  }
+  return skus
+}
+
+function generateAllSkuSeeds(nowStr) {
+  const allSkus = []
+  SEED_BEANS.forEach((_, idx) => {
+    const beanId = idx + 1
+    const basePrice = BEAN_BASE_PRICES[beanId]
+    allSkus.push(...buildSkusForBean(beanId, basePrice, nowStr))
+  })
+  return allSkus
+}
 
 const SEED_ROASTS = [
   { beanId: 1, date: '2026-05-20', level: '浅烘焙', temperature: 196, duration: 9.5, notes: '一爆密集期出锅，果香明显' },
@@ -89,13 +175,6 @@ const SEED_CURVES = [
   },
 ]
 
-const SEED_INVENTORY = [
-  { beanId: 1, stock: 100, reservedStock: 0, roastReservedStock: 0, price: 128.00, presalePrice: 108.00, deposit: 30.00, status: 'on_sale' },
-  { beanId: 2, stock: 80, reservedStock: 0, roastReservedStock: 0, price: 98.00, presalePrice: 85.00, deposit: 25.00, status: 'on_sale' },
-  { beanId: 3, stock: 50, reservedStock: 0, roastReservedStock: 0, price: 388.00, presalePrice: 328.00, deposit: 100.00, status: 'presale' },
-  { beanId: 4, stock: 50, reservedStock: 0, roastReservedStock: 0, price: 118.00, presalePrice: 98.00, deposit: 30.00, status: 'on_sale' },
-]
-
 const now = new Date()
 const SEED_PROMOTIONS = [
   {
@@ -132,7 +211,7 @@ const SEED_PROMOTIONS = [
 
 export async function seedDatabase() {
   const beanCount = await db.beans.count()
-  const inventoryCount = await db.inventory.count()
+  const skuCount = await db.beanSkus.count()
   const promotionCount = await db.promotions.count()
   const curveCount = await db.roastCurves.count()
   const paramCount = await db.extractionParams.count()
@@ -150,8 +229,9 @@ export async function seedDatabase() {
     await db.roastCurves.bulkAdd(SEED_CURVES.map(c => ({ ...c, createdAt: nowStr })))
   }
 
-  if (inventoryCount === 0) {
-    await db.inventory.bulkAdd(SEED_INVENTORY.map(i => ({ ...i, updatedAt: nowStr })))
+  if (skuCount === 0) {
+    const allSkus = generateAllSkuSeeds(nowStr)
+    await db.beanSkus.bulkAdd(allSkus)
   }
 
   if (promotionCount === 0) {

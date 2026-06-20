@@ -36,35 +36,64 @@
       </div>
 
       <div class="cart-section">
-        <h4 class="cart-title">选择商品</h4>
+        <h4 class="cart-title">选择商品（按克重/研磨度规格）</h4>
         <div class="cart-list">
-          <div v-for="inv in availableInventory" :key="inv.id" class="cart-item">
-            <div class="cart-item-info">
-              <div class="cart-item-name">{{ inv.beanName }}</div>
-              <div class="cart-item-meta">
-                <span class="tag">{{ inv.beanOrigin }}</span>
-                <span class="tag" :class="{ 'presale-tag': inv.status === 'presale' }">
-                  {{ inv.status === 'presale' ? '预售中' : '在售' }}
+          <div v-for="group in availableInventoryGroups" :key="group.beanId" class="cart-bean-group">
+            <div class="cart-bean-header">
+              <div class="cart-bean-info">
+                <span class="cart-bean-name">{{ group.beanName }}</span>
+                <span class="tag">{{ group.beanOrigin }}</span>
+                <span class="tag" :class="{ 'presale-tag': group.status === 'presale' }">
+                  {{ group.status === 'presale' ? '预售中' : '在售' }}
                 </span>
-                <span class="tag stock-tag">库存: {{ inv.availableStock }}</span>
               </div>
-              <div class="cart-item-price">
-                <span v-if="form.type === 'presale'">
-                  预售价: ¥{{ inv.presalePrice }} | 定金: ¥{{ inv.deposit }}
-                </span>
-                <span v-else>售价: ¥{{ inv.price }}</span>
-              </div>
+              <span class="cart-bean-price">价格区间: ¥{{ group.minPrice.toFixed(2) }} - ¥{{ group.maxPrice.toFixed(2) }}</span>
             </div>
-            <div class="cart-item-actions">
-              <button class="qty-btn" @click="decreaseQty(inv.beanId)">-</button>
-              <input
-                type="number"
-                class="qty-input"
-                v-model.number="form.cart[inv.beanId]"
-                min="0"
-                :max="inv.availableStock"
-              />
-              <button class="qty-btn" @click="increaseQty(inv.beanId, inv.availableStock)">+</button>
+            <div class="cart-sku-grid">
+              <div v-for="sku in group.skus" :key="sku.id" class="cart-sku-item" :class="{ disabled: sku.availableStock <= 0 && form.type !== 'presale' }">
+                <div class="sku-tags">
+                  <span class="sku-badge weight">{{ sku.weightLabel }}</span>
+                  <span class="sku-badge grind">{{ sku.grindLabel }}</span>
+                  <span class="sku-code-small">{{ sku.skuCode }}</span>
+                </div>
+                <div class="sku-info-line">
+                  <span v-if="form.type === 'presale'" class="sku-price presale-price">
+                    预售价: ¥{{ sku.presalePrice.toFixed(2) }}
+                  </span>
+                  <span v-else class="sku-price">
+                    售价: ¥{{ sku.price.toFixed(2) }}
+                  </span>
+                  <span v-if="form.type === 'presale'" class="sku-deposit">
+                    定金: ¥{{ sku.deposit.toFixed(2) }}
+                  </span>
+                </div>
+                <div class="sku-stock-line">
+                  <span v-if="form.type === 'presale' || sku.availableStock > 0" class="sku-stock">
+                    {{ form.type === 'presale' ? '可预售' : '库存' }}: {{ sku.availableStock }}
+                  </span>
+                  <span v-else class="sku-out">缺货</span>
+                </div>
+                <div class="sku-actions">
+                  <button
+                    class="qty-btn"
+                    @click="decreaseQty(sku.id)"
+                    :disabled="!form.cart[sku.id]"
+                  >-</button>
+                  <input
+                    type="number"
+                    class="qty-input"
+                    v-model.number="form.cart[sku.id]"
+                    min="0"
+                    :max="sku.availableStock"
+                    :disabled="sku.availableStock <= 0 && form.type !== 'presale'"
+                  />
+                  <button
+                    class="qty-btn"
+                    @click="increaseQty(sku.id, sku.availableStock)"
+                    :disabled="sku.availableStock <= 0 && form.type !== 'presale'"
+                  >+</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -180,10 +209,18 @@
 
         <div class="order-items-list">
           <div v-for="item in order.items" :key="item.id" class="order-line-item">
-            <span class="item-name">{{ item.beanName }}</span>
-            <span class="item-qty">x{{ item.quantity }}</span>
-            <span class="item-price">¥{{ item.unitPrice }}</span>
-            <span class="item-subtotal">小计: ¥{{ item.subtotal.toFixed(2) }}</span>
+            <div class="line-item-main">
+              <span class="item-name">{{ item.beanName }}</span>
+              <span class="item-sku-specs">
+                <span class="sku-badge-mini weight">{{ item.skuWeightLabel }}</span>
+                <span class="sku-badge-mini grind">{{ item.skuGrindLabel }}</span>
+              </span>
+            </div>
+            <div class="line-item-sub">
+              <span class="item-qty">x{{ item.quantity }}</span>
+              <span class="item-price">¥{{ item.unitPrice }}</span>
+              <span class="item-subtotal">小计: ¥{{ item.subtotal.toFixed(2) }}</span>
+            </div>
           </div>
         </div>
 
@@ -333,11 +370,18 @@ const form = reactive({
   selectedCouponId: null,
 })
 
-const availableInventory = computed(() => {
+const availableInventoryGroups = computed(() => {
+  const groups = invStore.inventoryGroupedByBean
   if (form.type === 'presale') {
-    return invStore.inventoryWithBeans.filter(i => i.status === 'presale' || i.status === 'on_sale')
+    return groups.map(g => ({
+      ...g,
+      skus: g.skus.filter(s => s.status === 'presale' || s.status === 'on_sale').map(s => ({ ...s }))
+    })).filter(g => g.skus.length > 0)
   }
-  return invStore.inventoryWithBeans.filter(i => i.status === 'on_sale' && i.availableStock > 0)
+  return groups.map(g => ({
+    ...g,
+    skus: g.skus.filter(s => s.status === 'on_sale').map(s => ({ ...s }))
+  })).filter(g => g.skus.some(s => s.availableStock > 0))
 })
 
 const filters = computed(() => [
@@ -366,14 +410,14 @@ const calculateTotals = computed(() => {
   let deposit = 0
   const beanIds = []
 
-  for (const inv of availableInventory.value) {
-    const qty = form.cart[inv.beanId] || 0
+  for (const sku of invStore.inventoryWithBeans) {
+    const qty = form.cart[sku.id] || 0
     if (qty > 0) {
-      const price = form.type === ORDER_TYPE.PRESALE ? inv.presalePrice : inv.price
+      const price = form.type === ORDER_TYPE.PRESALE ? sku.presalePrice : sku.price
       totalAmount += price * qty
-      beanIds.push(inv.beanId)
+      if (!beanIds.includes(sku.beanId)) beanIds.push(sku.beanId)
       if (form.type === ORDER_TYPE.PRESALE) {
-        deposit += inv.deposit * qty
+        deposit += sku.deposit * qty
       }
     }
   }
@@ -424,10 +468,10 @@ const applicableCoupons = computed(() => {
   if (!form.customerPhone.trim() || calculateTotals.value.totalAmount <= 0) return []
 
   const beanIds = []
-  for (const inv of availableInventory.value) {
-    const qty = form.cart[inv.beanId] || 0
-    if (qty > 0) {
-      beanIds.push(inv.beanId)
+  for (const sku of invStore.inventoryWithBeans) {
+    const qty = form.cart[sku.id] || 0
+    if (qty > 0 && !beanIds.includes(sku.beanId)) {
+      beanIds.push(sku.beanId)
     }
   }
 
@@ -450,17 +494,17 @@ const canSubmit = computed(() => {
   return hasItems && form.customerName.trim() && form.customerPhone.trim()
 })
 
-function increaseQty(beanId, maxStock) {
-  const current = form.cart[beanId] || 0
-  if (current < maxStock) {
-    form.cart[beanId] = current + 1
+function increaseQty(skuId, maxStock) {
+  const current = form.cart[skuId] || 0
+  if (form.type === ORDER_TYPE.PRESALE || current < maxStock) {
+    form.cart[skuId] = current + 1
   }
 }
 
-function decreaseQty(beanId) {
-  const current = form.cart[beanId] || 0
+function decreaseQty(skuId) {
+  const current = form.cart[skuId] || 0
   if (current > 0) {
-    form.cart[beanId] = current - 1
+    form.cart[skuId] = current - 1
   }
 }
 
@@ -477,10 +521,10 @@ async function submitOrder() {
   if (!canSubmit.value) return
 
   const items = []
-  for (const inv of availableInventory.value) {
-    const qty = form.cart[inv.beanId] || 0
+  for (const sku of invStore.inventoryWithBeans) {
+    const qty = form.cart[sku.id] || 0
     if (qty > 0) {
-      items.push({ beanId: inv.beanId, quantity: qty })
+      items.push({ skuId: sku.id, quantity: qty })
     }
   }
 
@@ -575,6 +619,9 @@ function openQRCode(order) {
   const beanItems = items.map(item => ({
     beanId: item.beanId,
     beanName: item.beanName,
+    skuId: item.skuId,
+    skuWeight: item.skuWeight,
+    skuGrind: item.skuGrind,
   }))
   const persistedQRCodes = orderStore.getOrderQRCodes(order.id)
   qrOrderData.value = {
@@ -653,34 +700,170 @@ onUnmounted(() => {
 .cart-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
 }
 
-.cart-item {
+.cart-bean-group {
+  background: #FFF8F0;
+  border-radius: 10px;
+  border: 1px solid #EDE0D0;
+  overflow: hidden;
+}
+
+.cart-bean-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px;
-  background: #FFF8F0;
-  border-radius: 8px;
-  border: 1px solid #EDE0D0;
+  padding: 10px 14px;
+  background: #FFFCF7;
+  border-bottom: 1px dashed #E8D5B7;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.cart-item-info {
-  flex: 1;
-}
-
-.cart-item-name {
-  font-weight: 600;
-  color: #3E2C1C;
-  margin-bottom: 4px;
-}
-
-.cart-item-meta {
+.cart-bean-info {
   display: flex;
+  align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  margin-bottom: 4px;
+}
+
+.cart-bean-name {
+  font-weight: 600;
+  color: #3E2C1C;
+}
+
+.cart-bean-price {
+  font-size: 12px;
+  color: #8B4513;
+  font-weight: 500;
+}
+
+.cart-sku-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+
+.cart-sku-item {
+  background: #FFFDF9;
+  border: 1px solid #EDE0D0;
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: all 0.2s;
+}
+
+.cart-sku-item:hover {
+  border-color: #D2B48C;
+  box-shadow: 0 2px 6px rgba(111, 78, 55, 0.1);
+}
+
+.cart-sku-item.disabled {
+  opacity: 0.5;
+  background: #F9F9F9;
+}
+
+.sku-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.sku-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sku-badge.weight {
+  background: #E8D5B7;
+  color: #6F4E37;
+}
+
+.sku-badge.grind {
+  background: #D4E6D4;
+  color: #3E6B3E;
+}
+
+.sku-badge-mini {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.sku-badge-mini.weight {
+  background: #E8D5B7;
+  color: #6F4E37;
+}
+
+.sku-badge-mini.grind {
+  background: #D4E6D4;
+  color: #3E6B3E;
+}
+
+.sku-code-small {
+  font-size: 10px;
+  color: #A08968;
+  font-family: monospace;
+}
+
+.sku-info-line {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+
+.sku-price {
+  color: #6F4E37;
+  font-weight: 600;
+}
+
+.sku-price.presale-price {
+  color: #C0392B;
+}
+
+.sku-deposit {
+  color: #8B4513;
+  font-size: 11px;
+}
+
+.sku-stock-line {
+  font-size: 11px;
+}
+
+.sku-stock {
+  color: #3E6B3E;
+  background: #D4E6D4;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.sku-out {
+  color: #991B1B;
+  background: #FEE2E2;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.sku-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px dashed #F0E0D0;
 }
 
 .presale-tag {
@@ -688,45 +871,37 @@ onUnmounted(() => {
   color: #C0392B;
 }
 
-.stock-tag {
-  background: #D4E6D4;
-  color: #3E6B3E;
-}
-
-.cart-item-price {
-  font-size: 13px;
-  color: #8B7355;
-}
-
-.cart-item-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: 16px;
-}
-
 .qty-btn {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border: 1px solid #D2B48C;
   background: #FFFDF9;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 16px;
+  font-size: 15px;
   color: #6F4E37;
 }
 
-.qty-btn:hover {
+.qty-btn:hover:not(:disabled) {
   background: #F0E0D0;
 }
 
+.qty-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .qty-input {
-  width: 50px;
+  width: 46px;
   text-align: center;
-  padding: 4px 6px;
+  padding: 3px 4px;
   border: 1px solid #D2B48C;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 13px;
+}
+
+.qty-input:disabled {
+  background: #F9F9F9;
 }
 
 .summary-section {
@@ -912,16 +1087,35 @@ onUnmounted(() => {
 
 .order-line-item {
   display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+}
+
+.line-item-main {
+  display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 4px 0;
-  font-size: 13px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .item-name {
-  flex: 1;
   color: #3E2C1C;
   font-weight: 500;
+  font-size: 13px;
+}
+
+.item-sku-specs {
+  display: flex;
+  gap: 4px;
+}
+
+.line-item-sub {
+  display: flex;
+  gap: 12px;
+  padding-left: 0;
+  font-size: 12px;
+  flex-wrap: wrap;
 }
 
 .item-qty {

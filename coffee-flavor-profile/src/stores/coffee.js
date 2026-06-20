@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import db from '../db.js'
+import db, { WEIGHT_OPTIONS, GRIND_OPTIONS, generateSkuCode, getWeightLabel, getGrindLabel, buildSkuName } from '../db.js'
 
 export const useCoffeeStore = defineStore('coffee', () => {
   const beans = ref([])
@@ -456,6 +456,8 @@ ${e.notes ? `<div class="card-notes">${escapeHtml(e.notes)}</div>` : ''}
     await db.roasts.where('beanId').equals(id).delete()
     await db.extractions.where('beanId').equals(id).delete()
     await db.ratings.where('beanId').equals(id).delete()
+    await db.beanSkus.where('beanId').equals(id).delete()
+    await db.roastCurves.where('beanId').equals(id).delete()
     beans.value = beans.value.filter(b => b.id !== id)
     roasts.value = roasts.value.filter(r => r.beanId !== id)
     extractions.value = extractions.value.filter(e => e.beanId !== id)
@@ -559,10 +561,55 @@ ${e.notes ? `<div class="card-notes">${escapeHtml(e.notes)}</div>` : ''}
     roastCurves.value = roastCurves.value.filter(c => c.id !== id)
   }
 
+  const WEIGHT_OPTIONS_REF = WEIGHT_OPTIONS
+  const GRIND_OPTIONS_REF = GRIND_OPTIONS
+
+  function generateDefaultSkusForBean(beanId, basePrice = 100) {
+    const skus = []
+    for (const weightOpt of WEIGHT_OPTIONS) {
+      const weightRatio = { 100: 1.0, 250: 2.3, 500: 4.3, 1000: 8.0 }[weightOpt.value] || 1
+      for (const grindOpt of GRIND_OPTIONS) {
+        const grindSurcharge = { bean: 0, coarse: 0, medium: 0, fine: 2 }[grindOpt.value] || 0
+        const price = +(basePrice * weightRatio + grindSurcharge).toFixed(2)
+        skus.push({
+          beanId,
+          weight: weightOpt.value,
+          grind: grindOpt.value,
+          skuCode: generateSkuCode(weightOpt.value, grindOpt.value),
+          stock: 0,
+          reservedStock: 0,
+          roastReservedStock: 0,
+          price,
+          presalePrice: +(price * 0.85).toFixed(2),
+          deposit: +(price * 0.3).toFixed(2),
+          status: 'off_shelf',
+        })
+      }
+    }
+    return skus
+  }
+
+  async function ensureBeanSkus(beanId, basePrice = 100) {
+    const existing = await db.beanSkus.where('beanId').equals(beanId).toArray()
+    if (existing.length > 0) return existing
+
+    const defaultSkus = generateDefaultSkusForBean(beanId, basePrice)
+    const nowStr = new Date().toISOString()
+    const data = defaultSkus.map(s => ({ ...s, updatedAt: nowStr }))
+    const ids = await db.beanSkus.bulkAdd(data, { allKeys: true })
+    return data.map((d, i) => ({ ...d, id: ids[i] }))
+  }
+
+  function getWeightLabelFn(weight) { return getWeightLabel(weight) }
+  function getGrindLabelFn(grind) { return getGrindLabel(grind) }
+  function buildSkuNameFn(beanName, weight, grind) { return buildSkuName(beanName, weight, grind) }
+
   return {
     beans, roasts, extractions, ratings, cuppingComparisons, roastCurves,
     beansWithDetails, cuppingComparisonsWithDetails, roastCurvesWithDetails,
     traceabilityArchives,
+    WEIGHT_OPTIONS: WEIGHT_OPTIONS_REF,
+    GRIND_OPTIONS: GRIND_OPTIONS_REF,
     loadAll,
     addBean, deleteBean,
     addRoast, deleteRoast,
@@ -573,5 +620,7 @@ ${e.notes ? `<div class="card-notes">${escapeHtml(e.notes)}</div>` : ''}
     getBeanTraceability, buildQRPayload, buildQRUrl, parseQRPayload,
     buildQRViewUrl, parseViewHash, chunkQRPayload, getChunkQRText, tryParseChunkText, buildStandaloneHtml,
     loadStoredChunks, clearStoredChunks, uploadToJsonbin, fetchFromJsonbin,
+    generateDefaultSkusForBean, ensureBeanSkus,
+    getWeightLabel: getWeightLabelFn, getGrindLabel: getGrindLabelFn, buildSkuName: buildSkuNameFn,
   }
 })

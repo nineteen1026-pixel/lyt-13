@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import db from '../db.js'
+import db, { getWeightLabel, getGrindLabel, buildSkuName } from '../db.js'
 import { useInventoryStore } from './inventory.js'
 
 export const ROAST_PLAN_STATUS = {
@@ -32,6 +32,11 @@ export const useRoastPlanStore = defineStore('roastPlan', () => {
   const roastPlansWithDetails = computed(() => {
     return roastPlans.value.map(plan => ({
       ...plan,
+      skuName: plan.skuWeight || plan.skuGrind
+        ? buildSkuName(plan.beanName, plan.skuWeight, plan.skuGrind)
+        : plan.beanName,
+      skuWeightLabel: plan.skuWeight ? getWeightLabel(plan.skuWeight) : '',
+      skuGrindLabel: plan.skuGrind ? getGrindLabel(plan.skuGrind) : '',
       statusText: getStatusText(plan.status),
     })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
   })
@@ -66,17 +71,20 @@ export const useRoastPlanStore = defineStore('roastPlan', () => {
     return roastPlans.value.filter(p => p.orderId === orderId)
   }
 
-  async function createRoastPlan({ orderId, orderItemId, beanId, beanName, quantity, roastLevel = null, curveId = null, notes = '', isPresale = false }) {
+  async function createRoastPlan({ orderId, orderItemId, beanId, beanName, skuId = null, skuWeight = null, skuGrind = null, quantity, roastLevel = null, curveId = null, notes = '', isPresale = false }) {
     const invStore = useInventoryStore()
 
-    const inv = await invStore.getByBeanId(beanId)
-    if (!inv) throw new Error('库存记录不存在')
+    if (skuId) {
+      const sku = await invStore.getBySkuId(skuId)
+      if (!sku) throw new Error('SKU库存记录不存在')
 
-    if (!isPresale) {
-      const roastReserved = inv.roastReservedStock || 0
-      const availableForRoast = inv.reservedStock - roastReserved
-      if (availableForRoast < quantity) {
-        throw new Error(`${beanName || '商品'} 可用于烘焙排产的库存不足`)
+      if (!isPresale) {
+        const roastReserved = sku.roastReservedStock || 0
+        const availableForRoast = sku.reservedStock - roastReserved
+        if (availableForRoast < quantity) {
+          const skuName = buildSkuName(beanName, skuWeight, skuGrind)
+          throw new Error(`${skuName || beanName || '商品'} 可用于烘焙排产的库存不足`)
+        }
       }
     }
 
@@ -86,6 +94,9 @@ export const useRoastPlanStore = defineStore('roastPlan', () => {
       orderItemId,
       beanId,
       beanName,
+      skuId,
+      skuWeight,
+      skuGrind,
       quantity,
       status: ROAST_PLAN_STATUS.PENDING,
       scheduledDate: calculateScheduledDate(now),
@@ -100,12 +111,12 @@ export const useRoastPlanStore = defineStore('roastPlan', () => {
       updatedAt: now.toISOString(),
     }
 
-    return await db.transaction('rw', db.roastPlans, db.inventory, async () => {
+    return await db.transaction('rw', db.roastPlans, db.beanSkus, async () => {
       const id = await db.roastPlans.add(planData)
       planData.id = id
 
-      if (!isPresale) {
-        await invStore.reserveRoastStock(beanId, quantity)
+      if (skuId && !isPresale) {
+        await invStore.reserveRoastStock(skuId, quantity)
       }
 
       roastPlans.value.push(planData)
@@ -123,8 +134,11 @@ export const useRoastPlanStore = defineStore('roastPlan', () => {
         orderItemId: item.id,
         beanId: item.beanId,
         beanName: item.beanName,
+        skuId: item.skuId,
+        skuWeight: item.skuWeight,
+        skuGrind: item.skuGrind,
         quantity: item.quantity,
-        notes: `订单 ${order.orderNo} - ${item.beanName}`,
+        notes: `订单 ${order.orderNo} - ${buildSkuName(item.beanName, item.skuWeight, item.skuGrind)}`,
       })
       plans.push(plan)
     }
@@ -170,10 +184,10 @@ export const useRoastPlanStore = defineStore('roastPlan', () => {
       updatedAt: now.toISOString(),
     }
 
-    await db.transaction('rw', db.roastPlans, db.inventory, async () => {
+    await db.transaction('rw', db.roastPlans, db.beanSkus, async () => {
       await db.roastPlans.update(planId, updateData)
-      if (!plan.isPresale) {
-        await invStore.releaseRoastStock(plan.beanId, plan.quantity)
+      if (plan.skuId && !plan.isPresale) {
+        await invStore.releaseRoastStock(plan.skuId, plan.quantity)
       }
     })
 
@@ -200,10 +214,10 @@ export const useRoastPlanStore = defineStore('roastPlan', () => {
       updatedAt: now.toISOString(),
     }
 
-    await db.transaction('rw', db.roastPlans, db.inventory, async () => {
+    await db.transaction('rw', db.roastPlans, db.beanSkus, async () => {
       await db.roastPlans.update(planId, updateData)
-      if (!plan.isPresale) {
-        await invStore.releaseRoastStock(plan.beanId, plan.quantity)
+      if (plan.skuId && !plan.isPresale) {
+        await invStore.releaseRoastStock(plan.skuId, plan.quantity)
       }
     })
 

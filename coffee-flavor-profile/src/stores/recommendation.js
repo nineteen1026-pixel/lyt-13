@@ -65,17 +65,38 @@ export const useRecommendationStore = defineStore('recommendation', () => {
   const coffeeStore = useCoffeeStore()
   const invStore = useInventoryStore()
 
-  function getBeanInventory(beanId) {
-    return invStore.inventoryList.find(i => i.beanId === beanId) || null
+  function getBeanSkus(beanId) {
+    return invStore.inventoryList.filter(i => i.beanId === beanId) || []
+  }
+
+  function getBeanDisplayInventory(beanId) {
+    const skus = getBeanSkus(beanId)
+    if (skus.length === 0) return null
+    const onSaleSkus = skus.filter(s => s.status !== 'off_shelf')
+    const pool = onSaleSkus.length > 0 ? onSaleSkus : skus
+    const cheapest = pool.reduce((min, s) => {
+      const sPrice = s.status === 'presale' ? s.presalePrice : s.price
+      const mPrice = min.status === 'presale' ? min.presalePrice : min.price
+      return sPrice < mPrice ? s : min
+    }, pool[0])
+    const totalAvailable = skus.reduce((sum, s) => sum + Math.max(0, s.stock - s.reservedStock), 0)
+    return {
+      ...cheapest,
+      totalAvailable,
+      skuCount: skus.length,
+      availableStock: Math.max(0, cheapest.stock - cheapest.reservedStock),
+    }
   }
 
   function getStockStatus(beanId) {
-    const inv = getBeanInventory(beanId)
-    if (!inv) return STOCK_STATUS.OUT_OF_STOCK
-    if (inv.status === 'off_shelf') return STOCK_STATUS.OFF_SHELF
-    const available = inv.stock - inv.reservedStock
-    if (available > 0) return STOCK_STATUS.IN_STOCK
-    if (inv.status === 'presale') return STOCK_STATUS.PRESALE
+    const skus = getBeanSkus(beanId)
+    if (skus.length === 0) return STOCK_STATUS.OUT_OF_STOCK
+    const onSaleSkus = skus.filter(s => s.status !== 'off_shelf')
+    if (onSaleSkus.length === 0) return STOCK_STATUS.OFF_SHELF
+    const hasInStock = onSaleSkus.some(s => s.status === 'on_sale' && (s.stock - s.reservedStock) > 0)
+    if (hasInStock) return STOCK_STATUS.IN_STOCK
+    const hasPresale = onSaleSkus.some(s => s.status === 'presale')
+    if (hasPresale) return STOCK_STATUS.PRESALE
     return STOCK_STATUS.OUT_OF_STOCK
   }
 
@@ -193,7 +214,8 @@ export const useRecommendationStore = defineStore('recommendation', () => {
       const similarity = calculateBeanSimilarity(beanId, bean.id)
       if (similarity > 0) {
         const stockStatus = getStockStatus(bean.id)
-        const inventory = getBeanInventory(bean.id)
+        const inv = getBeanDisplayInventory(bean.id)
+        const skus = getBeanSkus(bean.id)
         const stockPriority = getStockPriority(stockStatus)
         results.push({
           bean,
@@ -201,14 +223,20 @@ export const useRecommendationStore = defineStore('recommendation', () => {
           similarityPercent: Math.round(similarity * 100),
           stockStatus,
           stockPriority,
-          inventory: inventory ? {
-            stock: inventory.stock,
-            reservedStock: inventory.reservedStock,
-            availableStock: inventory.stock - inventory.reservedStock,
-            price: inventory.price,
-            presalePrice: inventory.presalePrice,
-            deposit: inventory.deposit,
-            status: inventory.status,
+          skus,
+          inventory: inv ? {
+            stock: inv.stock,
+            reservedStock: inv.reservedStock,
+            availableStock: inv.availableStock,
+            totalAvailable: inv.totalAvailable,
+            price: inv.price,
+            presalePrice: inv.presalePrice,
+            deposit: inv.deposit,
+            status: inv.status,
+            skuId: inv.id,
+            skuWeight: inv.weight,
+            skuGrind: inv.grind,
+            skuCount: inv.skuCount,
           } : null,
         })
       }
@@ -260,7 +288,8 @@ export const useRecommendationStore = defineStore('recommendation', () => {
 
       if (hasRatingScore || hasTagScore) {
         const stockStatus = getStockStatus(bean.id)
-        const inventory = getBeanInventory(bean.id)
+        const inv = getBeanDisplayInventory(bean.id)
+        const skus = getBeanSkus(bean.id)
         const stockPriority = getStockPriority(stockStatus)
         results.push({
           bean,
@@ -272,14 +301,20 @@ export const useRecommendationStore = defineStore('recommendation', () => {
           },
           stockStatus,
           stockPriority,
-          inventory: inventory ? {
-            stock: inventory.stock,
-            reservedStock: inventory.reservedStock,
-            availableStock: inventory.stock - inventory.reservedStock,
-            price: inventory.price,
-            presalePrice: inventory.presalePrice,
-            deposit: inventory.deposit,
-            status: inventory.status,
+          skus,
+          inventory: inv ? {
+            stock: inv.stock,
+            reservedStock: inv.reservedStock,
+            availableStock: inv.availableStock,
+            totalAvailable: inv.totalAvailable,
+            price: inv.price,
+            presalePrice: inv.presalePrice,
+            deposit: inv.deposit,
+            status: inv.status,
+            skuId: inv.id,
+            skuWeight: inv.weight,
+            skuGrind: inv.grind,
+            skuCount: inv.skuCount,
           } : null,
         })
       }
@@ -545,7 +580,8 @@ export const useRecommendationStore = defineStore('recommendation', () => {
     recommendRoastLevel,
     recommendExtractionParams,
     getBeanRecommendHighlights,
-    getBeanInventory,
+    getBeanSkus,
+    getBeanDisplayInventory,
     getStockStatus,
     getStockPriority,
     STOCK_STATUS,

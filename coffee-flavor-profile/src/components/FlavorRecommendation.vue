@@ -113,15 +113,15 @@
                 <div class="card-footer">
                   <div class="price-section">
                     <span v-if="rec.inventory && rec.stockStatus === recStore.STOCK_STATUS.PRESALE" class="price presale-price">
-                      ¥{{ rec.inventory.presalePrice.toFixed(2) }}
+                      ¥{{ rec.inventory.presalePrice.toFixed(2) }}<span class="price-label-suffix">起</span>
                       <span class="price-label">预售价</span>
                     </span>
                     <span v-else-if="rec.inventory" class="price normal-price">
-                      ¥{{ rec.inventory.price.toFixed(2) }}
+                      ¥{{ rec.inventory.price.toFixed(2) }}<span class="price-label-suffix">起</span>
                       <span class="price-label" v-if="rec.stockStatus === recStore.STOCK_STATUS.IN_STOCK">售价</span>
                     </span>
                     <span v-if="rec.inventory && rec.stockStatus === recStore.STOCK_STATUS.IN_STOCK" class="stock-info">
-                      库存: {{ rec.inventory.availableStock }}
+                      共 {{ rec.inventory.totalAvailable }} 件 · {{ rec.inventory.skuCount }} 规格
                     </span>
                   </div>
                   <button
@@ -209,15 +209,15 @@
               <div class="card-footer">
                 <div class="price-section">
                   <span v-if="rec.inventory && rec.stockStatus === recStore.STOCK_STATUS.PRESALE" class="price presale-price">
-                    ¥{{ rec.inventory.presalePrice.toFixed(2) }}
+                    ¥{{ rec.inventory.presalePrice.toFixed(2) }}<span class="price-label-suffix">起</span>
                     <span class="price-label">预售价</span>
                   </span>
                   <span v-else-if="rec.inventory" class="price normal-price">
-                    ¥{{ rec.inventory.price.toFixed(2) }}
+                    ¥{{ rec.inventory.price.toFixed(2) }}<span class="price-label-suffix">起</span>
                     <span class="price-label" v-if="rec.stockStatus === recStore.STOCK_STATUS.IN_STOCK">售价</span>
                   </span>
                   <span v-if="rec.inventory && rec.stockStatus === recStore.STOCK_STATUS.IN_STOCK" class="stock-info">
-                    库存: {{ rec.inventory.availableStock }}
+                    共 {{ rec.inventory.totalAvailable }} 件 · {{ rec.inventory.skuCount }} 规格
                   </span>
                 </div>
                 <button
@@ -262,26 +262,66 @@
               </div>
             </div>
 
-            <div class="order-price-section">
-              <div v-if="quickOrderData.stockStatus === recStore.STOCK_STATUS.PRESALE" class="price-row">
-                <span>预售价:</span>
-                <span class="price-value presale">¥{{ quickOrderData.inventory?.presalePrice?.toFixed(2) }}</span>
+            <div class="sku-select-section">
+              <div class="form-group">
+                <label class="sku-label">选择克重 <span class="required">*</span></label>
+                <div class="weight-options">
+                  <button
+                    v-for="w in WEIGHT_OPTIONS"
+                    :key="w.value"
+                    :class="['weight-btn', { active: orderForm.weight === w.value, disabled: !hasWeightAvailable(w.value) }]"
+                    :disabled="!hasWeightAvailable(w.value)"
+                    @click="orderForm.weight = w.value; orderForm.quantity = 1"
+                  >
+                    {{ w.label }}
+                  </button>
+                </div>
               </div>
-              <div class="price-row">
-                <span>售价:</span>
-                <span class="price-value">¥{{ quickOrderData.inventory?.price?.toFixed(2) }}</span>
-              </div>
-              <div v-if="quickOrderData.stockStatus === recStore.STOCK_STATUS.PRESALE" class="price-row">
-                <span>定金:</span>
-                <span class="price-value">¥{{ quickOrderData.inventory?.deposit?.toFixed(2) }}</span>
-              </div>
-              <div v-if="quickOrderData.stockStatus === recStore.STOCK_STATUS.IN_STOCK" class="price-row">
-                <span>可用库存:</span>
-                <span class="stock-value">{{ quickOrderData.inventory?.availableStock }}</span>
+              <div class="form-group">
+                <label class="sku-label">选择研磨度 <span class="required">*</span></label>
+                <div class="grind-options">
+                  <button
+                    v-for="g in GRIND_OPTIONS"
+                    :key="g.value"
+                    :class="['grind-btn', { active: orderForm.grind === g.value, disabled: !hasGrindAvailable(g.value) }]"
+                    :disabled="!hasGrindAvailable(g.value)"
+                    @click="orderForm.grind = g.value; orderForm.quantity = 1"
+                  >
+                    {{ g.label }}
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div class="order-quantity-section">
+            <div class="order-price-section" v-if="selectedSku">
+              <div v-if="selectedSku.status === 'presale'" class="price-row">
+                <span>预售价:</span>
+                <span class="price-value presale">¥{{ selectedSku.presalePrice?.toFixed(2) }}</span>
+              </div>
+              <div class="price-row">
+                <span>售价:</span>
+                <span class="price-value">¥{{ selectedSku.price?.toFixed(2) }}</span>
+              </div>
+              <div v-if="selectedSku.status === 'presale'" class="price-row">
+                <span>定金:</span>
+                <span class="price-value">¥{{ selectedSku.deposit?.toFixed(2) }}</span>
+              </div>
+              <div v-if="selectedSku.status === 'on_sale'" class="price-row">
+                <span>可用库存:</span>
+                <span class="stock-value">{{ Math.max(0, selectedSku.stock - selectedSku.reservedStock) }}</span>
+              </div>
+              <div v-else class="price-row">
+                <span>上架状态:</span>
+                <span :class="['stock-value', selectedSku.status === 'presale' ? 'text-presale' : selectedSku.status === 'off_shelf' ? 'text-off' : 'text-in']">
+                  {{ selectedSku.status === 'presale' ? '预售中' : selectedSku.status === 'off_shelf' ? '已下架' : '在售' }}
+                </span>
+              </div>
+            </div>
+            <div v-else class="sku-hint">
+              💡 请先选择克重和研磨度
+            </div>
+
+            <div class="order-quantity-section" v-if="selectedSku && selectedSku.status !== 'off_shelf'">
               <label>购买数量:</label>
               <div class="quantity-control">
                 <button class="qty-btn" @click="decreaseQty">-</button>
@@ -435,6 +475,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { useCoffeeStore } from '../stores/coffee.js'
 import { useRecommendationStore } from '../stores/recommendation.js'
 import { useOrderStore, ORDER_TYPE } from '../stores/order.js'
+import { WEIGHT_OPTIONS, GRIND_OPTIONS, getWeightLabel, getGrindLabel, buildSkuName } from '../db.js'
 
 const DIMENSIONS = ['酸度', '甜度', '醇厚度', '余韵', '平衡']
 
@@ -453,8 +494,11 @@ const quickOrderData = ref({
   bean: null,
   inventory: null,
   stockStatus: null,
+  skus: [],
 })
 const orderForm = reactive({
+  weight: 250,
+  grind: 'bean',
   quantity: 1,
   customerName: '',
   customerPhone: '',
@@ -506,32 +550,61 @@ function selectBean(bean) {
   detailTab.value = 'roast'
 }
 
+const selectedSku = computed(() => {
+  if (!quickOrderData.value.skus || quickOrderData.value.skus.length === 0) return null
+  return quickOrderData.value.skus.find(
+    s => s.weight === orderForm.weight && s.grind === orderForm.grind
+  ) || null
+})
+
+function hasWeightAvailable(weight) {
+  if (!quickOrderData.value.skus) return false
+  return quickOrderData.value.skus.some(s =>
+    s.weight === weight &&
+    (s.status !== 'off_shelf') &&
+    ((s.status === 'on_sale' && (s.stock - s.reservedStock) > 0) || s.status === 'presale')
+  )
+}
+
+function hasGrindAvailable(grind) {
+  if (!quickOrderData.value.skus) return false
+  return quickOrderData.value.skus.some(s =>
+    s.grind === grind &&
+    (s.status !== 'off_shelf') &&
+    ((s.status === 'on_sale' && (s.stock - s.reservedStock) > 0) || s.status === 'presale')
+  )
+}
+
 const orderSummary = computed(() => {
-  const inv = quickOrderData.value.inventory
+  const sku = selectedSku.value
   const qty = orderForm.quantity || 0
-  if (!inv || qty <= 0) {
+  if (!sku || qty <= 0) {
     return { subtotal: 0, deposit: 0, total: 0 }
   }
-  const isPresale = quickOrderData.value.stockStatus === recStore.STOCK_STATUS.PRESALE
-  const unitPrice = isPresale ? inv.presalePrice : inv.price
+  const isPresale = sku.status === 'presale'
+  const unitPrice = isPresale ? sku.presalePrice : sku.price
   const subtotal = +(unitPrice * qty).toFixed(2)
-  const deposit = isPresale ? +(inv.deposit * qty).toFixed(2) : subtotal
+  const deposit = isPresale ? +(sku.deposit * qty).toFixed(2) : subtotal
   return { subtotal, deposit, total: subtotal }
 })
 
 const canSubmitOrder = computed(() => {
+  const sku = selectedSku.value
   return (
+    !!sku &&
+    sku.status !== 'off_shelf' &&
     orderForm.quantity > 0 &&
     orderForm.customerName.trim() &&
-    orderForm.customerPhone.trim() &&
-    quickOrderData.value.bean
+    orderForm.customerPhone.trim()
   )
 })
 
 const maxQuantity = computed(() => {
-  const isPresale = quickOrderData.value.stockStatus === recStore.STOCK_STATUS.PRESALE
+  const sku = selectedSku.value
+  if (!sku) return 999
+  const isPresale = sku.status === 'presale'
   if (isPresale) return 999
-  return quickOrderData.value.inventory?.availableStock || 999
+  return Math.max(0, sku.stock - sku.reservedStock) || 999
 })
 
 function openQuickOrder(rec) {
@@ -539,6 +612,18 @@ function openQuickOrder(rec) {
     bean: rec.bean,
     inventory: rec.inventory,
     stockStatus: rec.stockStatus,
+    skus: rec.skus || [],
+  }
+  const firstAvailable = (rec.skus || []).find(
+    s => s.status !== 'off_shelf' &&
+    ((s.status === 'on_sale' && (s.stock - s.reservedStock) > 0) || s.status === 'presale')
+  )
+  if (firstAvailable) {
+    orderForm.weight = firstAvailable.weight
+    orderForm.grind = firstAvailable.grind
+  } else {
+    orderForm.weight = 250
+    orderForm.grind = 'bean'
   }
   orderForm.quantity = 1
   orderForm.customerName = ''
@@ -561,7 +646,8 @@ function decreaseQty() {
 async function submitQuickOrder() {
   if (!canSubmitOrder.value) return
 
-  const isPresale = quickOrderData.value.stockStatus === recStore.STOCK_STATUS.PRESALE
+  const sku = selectedSku.value
+  const isPresale = sku.status === 'presale'
   const orderType = isPresale ? ORDER_TYPE.PRESALE : ORDER_TYPE.NORMAL
 
   try {
@@ -569,14 +655,15 @@ async function submitQuickOrder() {
       type: orderType,
       items: [
         {
-          beanId: quickOrderData.value.bean.id,
+          skuId: sku.id,
           quantity: orderForm.quantity,
         },
       ],
       customerName: orderForm.customerName.trim(),
       customerPhone: orderForm.customerPhone.trim(),
     })
-    alert(`订单创建成功！\n订单号: ${order.orderNo}\n应付金额: ¥${order.payAmount.toFixed(2)}${isPresale ? `\n定金: ¥${order.depositAmount.toFixed(2)}` : ''}`)
+    const skuName = buildSkuName(quickOrderData.value.bean.name, sku.weight, sku.grind)
+    alert(`订单创建成功！\n订单号: ${order.orderNo}\n商品: ${skuName} × ${orderForm.quantity}\n应付金额: ¥${order.payAmount.toFixed(2)}${isPresale ? `\n定金: ¥${order.depositAmount.toFixed(2)}` : ''}`)
     showQuickOrder.value = false
   } catch (e) {
     alert('创建订单失败: ' + e.message)
@@ -1425,5 +1512,108 @@ async function submitQuickOrder() {
 .btn-submit-order:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.price-label-suffix {
+  font-size: 12px;
+  font-weight: 500;
+  color: #8B7355;
+  margin-left: 2px;
+}
+
+.sku-select-section {
+  background: #FFF8F0;
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 16px;
+  border: 1px solid #E8D5B7;
+}
+
+.sku-select-section .form-group {
+  margin-bottom: 12px;
+}
+
+.sku-select-section .form-group:last-child {
+  margin-bottom: 0;
+}
+
+.sku-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6F4E37;
+  margin-bottom: 8px;
+}
+
+.sku-label .required {
+  color: #E74C3C;
+}
+
+.weight-options,
+.grind-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.weight-btn,
+.grind-btn {
+  flex: 1 1 auto;
+  min-width: 80px;
+  padding: 8px 12px;
+  border: 1.5px solid #D2B48C;
+  background: #FFFCF7;
+  color: #6F4E37;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.weight-btn:hover:not(:disabled),
+.grind-btn:hover:not(:disabled) {
+  background: #FFF0E0;
+  border-color: #C4A882;
+}
+
+.weight-btn.active,
+.grind-btn.active {
+  background: linear-gradient(135deg, #6F4E37, #8B6914);
+  color: #FFF8F0;
+  border-color: #6F4E37;
+  box-shadow: 0 2px 6px rgba(62, 44, 28, 0.2);
+}
+
+.weight-btn.disabled,
+.grind-btn.disabled,
+.weight-btn:disabled,
+.grind-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+
+.sku-hint {
+  background: #FFF8F0;
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 16px;
+  text-align: center;
+  font-size: 13px;
+  color: #A08968;
+  border: 1px dashed #D2B48C;
+}
+
+.text-presale {
+  color: #C0392B !important;
+}
+
+.text-off {
+  color: #999 !important;
+}
+
+.text-in {
+  color: #065F46 !important;
 }
 </style>
