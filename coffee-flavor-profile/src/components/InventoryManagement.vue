@@ -49,7 +49,11 @@
       </div>
       <div class="stat-card reserved">
         <div class="stat-value">{{ totalReserved }}</div>
-        <div class="stat-label">已占用</div>
+        <div class="stat-label">订单占用</div>
+      </div>
+      <div class="stat-card roasting">
+        <div class="stat-value">{{ totalRoastReserved }}</div>
+        <div class="stat-label">烘焙排产</div>
       </div>
       <div class="stat-card available">
         <div class="stat-value">{{ totalAvailable }}</div>
@@ -101,8 +105,12 @@
               <span class="stock-value">{{ inv.stock }}</span>
             </div>
             <div class="stock-row reserved">
-              <span>已占用:</span>
+              <span>订单占用:</span>
               <span class="stock-value">{{ inv.reservedStock }}</span>
+            </div>
+            <div v-if="inv.roastReservedStock > 0" class="stock-row roasting">
+              <span>烘焙排产:</span>
+              <span class="stock-value">{{ inv.roastReservedStock }}</span>
             </div>
             <div class="stock-row available">
               <span>可用:</span>
@@ -140,6 +148,7 @@ watch(() => invStore.inventoryList, (list) => {
 
 const totalStock = computed(() => invStore.inventoryList.reduce((s, i) => s + i.stock, 0))
 const totalReserved = computed(() => invStore.inventoryList.reduce((s, i) => s + i.reservedStock, 0))
+const totalRoastReserved = computed(() => invStore.inventoryList.reduce((s, i) => s + (i.roastReservedStock || 0), 0))
 const totalAvailable = computed(() => totalStock.value - totalReserved.value)
 const presaleCount = computed(() => invStore.inventoryList.filter(i => i.status === 'presale').length)
 
@@ -245,6 +254,10 @@ async function saveEdits() {
 
 .stat-card.presale .stat-value {
   color: #C0392B;
+}
+
+.stat-card.roasting .stat-value {
+  color: #92400E;
 }
 
 .inventory-list {
@@ -389,5 +402,9 @@ async function saveEdits() {
 
 .stock-row.available .stock-value {
   color: #065F46;
+}
+
+.stock-row.roasting .stock-value {
+  color: #92400E;
 }
 </style>

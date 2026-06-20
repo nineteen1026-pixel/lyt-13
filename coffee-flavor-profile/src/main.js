@@ -8,6 +8,7 @@ import { usePromotionStore } from './stores/promotion.js'
 import { useOrderStore } from './stores/order.js'
 import { useCouponStore } from './stores/coupon.js'
 import { useExtractionParamsStore } from './stores/extractionParams.js'
+import { useRoastPlanStore } from './stores/roastPlan.js'
 
 const pinia = createPinia()
 const app = createApp(App)
@@ -21,12 +22,14 @@ seedDatabase().then(async () => {
   const orderStore = useOrderStore()
   const couponStore = useCouponStore()
   const extractionStore = useExtractionParamsStore()
+  const roastPlanStore = useRoastPlanStore()
 
   await coffeeStore.loadAll()
   inventoryStore.setBeanReference(coffeeStore.beans)
   await inventoryStore.loadAll()
   await promotionStore.loadAll()
   await couponStore.loadAll()
+  await roastPlanStore.loadAll()
   await orderStore.loadAll()
   await extractionStore.loadAll()
 

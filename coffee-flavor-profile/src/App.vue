@@ -29,6 +29,7 @@
       <PromotionManagement v-if="activeTab === 'promotion'" @navigate="activeTab = $event" />
       <CouponCenter v-if="activeTab === 'coupon'" />
       <OrderManagement v-if="activeTab === 'order'" />
+      <RoastSchedule v-if="activeTab === 'roastSchedule'" />
       <BeanTraceability v-if="activeTab === 'traceability'" :initialBeanId="traceabilityBeanId" :viewData="traceabilityViewData" :chunkProgress="chunkProgress" :loading="loadingBinData" />
     </div>
   </div>
@@ -48,8 +49,10 @@ import InventoryManagement from './components/InventoryManagement.vue'
 import PromotionManagement from './components/PromotionManagement.vue'
 import CouponCenter from './components/CouponCenter.vue'
 import OrderManagement from './components/OrderManagement.vue'
+import RoastSchedule from './components/RoastSchedule.vue'
 import BeanTraceability from './components/BeanTraceability.vue'
 import { useCoffeeStore } from './stores/coffee.js'
+import { useRoastPlanStore } from './stores/roastPlan.js'
 
 const activeTab = ref('extractionRec')
 const traceabilityBeanId = ref(null)
@@ -137,6 +140,7 @@ const tabs = [
   { key: 'recommend', icon: '🧠', label: '风味推荐' },
   { key: 'traceability', icon: '📜', label: '溯源档案' },
   { key: 'order', icon: '🛒', label: '订单管理' },
+  { key: 'roastSchedule', icon: '📅', label: '烘焙排产' },
   { key: 'inventory', icon: '📦', label: '库存管理' },
   { key: 'promotion', icon: '🎁', label: '营销活动' },
   { key: 'coupon', icon: '🎫', label: '优惠券中心' },

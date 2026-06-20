@@ -201,6 +201,13 @@
           </div>
         </div>
 
+        <div v-if="order.estimatedDeliveryDate" class="delivery-info">
+          📦 预计交货: <span class="delivery-date">{{ formatDeliveryDate(order.estimatedDeliveryDate) }}</span>
+          <span v-if="order.activeRoastPlans && order.activeRoastPlans.length > 0" class="roast-count">
+            ({{ order.activeRoastPlans.length }} 个烘焙待办)
+          </span>
+        </div>
+
         <div v-if="order.depositDueAt && order.status === 'pending_deposit'" class="timeout-info deposit">
           ⏰ 定金支付截止: {{ new Date(order.depositDueAt).toLocaleString() }}
           <span class="countdown">{{ getCountdown(order.depositDueAt) }}</span>
@@ -302,12 +309,14 @@ import { useOrderStore, ORDER_TYPE } from '../stores/order.js'
 import { useInventoryStore } from '../stores/inventory.js'
 import { usePromotionStore } from '../stores/promotion.js'
 import { useCouponStore } from '../stores/coupon.js'
+import { useRoastPlanStore } from '../stores/roastPlan.js'
 import FlavorQRCode from './FlavorQRCode.vue'
 
 const orderStore = useOrderStore()
 const invStore = useInventoryStore()
 const promoStore = usePromotionStore()
 const couponStore = useCouponStore()
+const roastPlanStore = useRoastPlanStore()
 
 const showCreateForm = ref(false)
 const activeFilter = ref('all')
@@ -596,8 +605,18 @@ function getCountdown(dueAtStr) {
   return `(剩 ${secs}s)`
 }
 
+function formatDeliveryDate(dateStr) {
+  if (!dateStr) return '-'
+  return new Date(dateStr).toLocaleDateString('zh-CN', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
+}
+
 onMounted(async () => {
   await couponStore.loadAll()
+  await roastPlanStore.loadAll()
   countdownTimer = setInterval(() => {
     orderStore.checkTimeouts()
   }, 1000)
@@ -1119,5 +1138,29 @@ onUnmounted(() => {
   padding: 20px;
   color: #B0A090;
   font-size: 13px;
+}
+
+.delivery-info {
+  padding: 10px 12px;
+  background: #ECFDF5;
+  border: 1px solid #6EE7B7;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #065F46;
+  margin-bottom: 10px;
+}
+
+.delivery-date {
+  font-weight: 600;
+  color: #047857;
+}
+
+.roast-count {
+  margin-left: 6px;
+  font-size: 12px;
+  color: #059669;
+  background: #D1FAE5;
+  padding: 1px 8px;
+  border-radius: 10px;
 }
 </style>

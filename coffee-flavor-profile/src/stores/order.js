@@ -5,6 +5,7 @@ import { useInventoryStore } from './inventory.js'
 import { usePromotionStore } from './promotion.js'
 import { useCouponStore } from './coupon.js'
 import { useCoffeeStore } from './coffee.js'
+import { useRoastPlanStore } from './roastPlan.js'
 
 export const ORDER_STATUS = {
   PENDING_DEPOSIT: 'pending_deposit',
@@ -43,15 +44,28 @@ export const useOrderStore = defineStore('order', () => {
   let timeoutTimer = null
 
   const ordersWithDetails = computed(() => {
+    const roastPlanStore = useRoastPlanStore()
     return orders.value.map(order => {
       const items = orderItems.value.filter(i => i.orderId === order.id)
       const orderPayments = payments.value.filter(p => p.orderId === order.id)
       const orderReminders = reminders.value.filter(r => r.orderId === order.id)
+      const roastPlans = roastPlanStore.roastPlans.filter(p => p.orderId === order.id)
+      const activeRoastPlans = roastPlans.filter(p => p.status !== 'canceled')
+      const estimatedDeliveryDate = order.estimatedDeliveryDate || (
+        activeRoastPlans.length > 0
+          ? activeRoastPlans.reduce((max, p) =>
+              new Date(p.estimatedDeliveryDate) > new Date(max.estimatedDeliveryDate) ? p : max
+            ).estimatedDeliveryDate
+          : null
+      )
       return {
         ...order,
         items,
         payments: orderPayments,
         reminders: orderReminders,
+        roastPlans,
+        activeRoastPlans,
+        estimatedDeliveryDate,
         statusText: getStatusText(order.status),
         typeText: order.type === ORDER_TYPE.PRESALE ? '预售订单' : '普通订单',
       }
@@ -151,6 +165,7 @@ export const useOrderStore = defineStore('order', () => {
     const invStore = useInventoryStore()
     const promoStore = usePromotionStore()
     const couponStore = useCouponStore()
+    const roastPlanStore = useRoastPlanStore()
     const items = orderItems.value.filter(i => i.orderId === order.id)
 
     for (const item of items) {
@@ -158,6 +173,14 @@ export const useOrderStore = defineStore('order', () => {
         await invStore.releaseStock(item.beanId, item.quantity)
       } catch (e) {
         console.error('释放库存失败:', e)
+      }
+    }
+
+    if (order.type === ORDER_TYPE.PRESALE) {
+      try {
+        await roastPlanStore.cancelRoastPlansByOrderId(order.id, '订单取消')
+      } catch (e) {
+        console.error('取消烘焙排产失败:', e)
       }
     }
 
@@ -305,7 +328,7 @@ export const useOrderStore = defineStore('order', () => {
       updatedAt: now.toISOString(),
     }
 
-    return await db.transaction('rw', db.orders, db.orderItems, db.inventory, db.promotionRedemptions, db.coupons, async () => {
+    return await db.transaction('rw', db.orders, db.orderItems, db.inventory, db.promotionRedemptions, db.coupons, db.roastPlans, async () => {
       const orderId = await db.orders.add(orderData)
       orderData.id = orderId
 
@@ -334,10 +357,35 @@ export const useOrderStore = defineStore('order', () => {
         )
       }
 
+      let estimatedDeliveryDate = null
+      if (type === ORDER_TYPE.PRESALE) {
+        const roastPlanStore = useRoastPlanStore()
+        const plans = []
+        for (const item of orderItemsData) {
+          const plan = await roastPlanStore.createRoastPlan({
+            orderId,
+            orderItemId: item.id,
+            beanId: item.beanId,
+            beanName: item.beanName,
+            quantity: item.quantity,
+            notes: `订单 ${orderData.orderNo} - ${item.beanName}`,
+          })
+          plans.push(plan)
+        }
+        if (plans.length > 0) {
+          const latest = plans.reduce((max, p) =>
+            new Date(p.estimatedDeliveryDate) > new Date(max.estimatedDeliveryDate) ? p : max
+          )
+          estimatedDeliveryDate = latest.estimatedDeliveryDate
+          await db.orders.update(orderId, { estimatedDeliveryDate })
+          orderData.estimatedDeliveryDate = estimatedDeliveryDate
+        }
+      }
+
       orders.value.push(orderData)
       orderItems.value.push(...orderItemsData)
 
-      return { id: orderId, ...orderData, items: orderItemsData }
+      return { id: orderId, ...orderData, items: orderItemsData, estimatedDeliveryDate }
     })
   }
 

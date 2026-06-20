@@ -8,11 +8,14 @@ export const useInventoryStore = defineStore('inventory', () => {
   const inventoryWithBeans = computed(() => {
     return inventoryList.value.map(inv => {
       const bean = window.__coffeeBeans?.find(b => b.id === inv.beanId)
+      const roastReserved = inv.roastReservedStock || 0
       return {
         ...inv,
         beanName: bean?.name || '未知豆种',
         beanOrigin: bean?.origin || '',
+        roastReservedStock: roastReserved,
         availableStock: inv.stock - inv.reservedStock,
+        sellableStock: inv.stock - inv.reservedStock - roastReserved,
       }
     })
   })
@@ -64,6 +67,27 @@ export const useInventoryStore = defineStore('inventory', () => {
     return true
   }
 
+  async function reserveRoastStock(beanId, quantity) {
+    const inv = await getByBeanId(beanId)
+    if (!inv) throw new Error('库存记录不存在')
+    const roastReserved = inv.roastReservedStock || 0
+    const available = inv.stock - inv.reservedStock - roastReserved
+    if (available < quantity) throw new Error('可用于烘焙排产的库存不足')
+
+    const newRoastReserved = roastReserved + quantity
+    await updateInventory(inv.id, { roastReservedStock: newRoastReserved })
+    return true
+  }
+
+  async function releaseRoastStock(beanId, quantity) {
+    const inv = await getByBeanId(beanId)
+    if (!inv) throw new Error('库存记录不存在')
+    const roastReserved = inv.roastReservedStock || 0
+    const newRoastReserved = Math.max(0, roastReserved - quantity)
+    await updateInventory(inv.id, { roastReservedStock: newRoastReserved })
+    return true
+  }
+
   async function addInventory(inv) {
     const data = { ...inv, updatedAt: new Date().toISOString() }
     const id = await db.inventory.add(data)
@@ -85,6 +109,8 @@ export const useInventoryStore = defineStore('inventory', () => {
     reserveStock,
     releaseStock,
     deductStock,
+    reserveRoastStock,
+    releaseRoastStock,
     addInventory,
     setBeanReference,
   }

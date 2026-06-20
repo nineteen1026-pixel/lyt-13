@@ -90,10 +90,10 @@ const SEED_CURVES = [
 ]
 
 const SEED_INVENTORY = [
-  { beanId: 1, stock: 100, reservedStock: 0, price: 128.00, presalePrice: 108.00, deposit: 30.00, status: 'on_sale' },
-  { beanId: 2, stock: 80, reservedStock: 0, price: 98.00, presalePrice: 85.00, deposit: 25.00, status: 'on_sale' },
-  { beanId: 3, stock: 0, reservedStock: 0, price: 388.00, presalePrice: 328.00, deposit: 100.00, status: 'presale' },
-  { beanId: 4, stock: 50, reservedStock: 0, price: 118.00, presalePrice: 98.00, deposit: 30.00, status: 'on_sale' },
+  { beanId: 1, stock: 100, reservedStock: 0, roastReservedStock: 0, price: 128.00, presalePrice: 108.00, deposit: 30.00, status: 'on_sale' },
+  { beanId: 2, stock: 80, reservedStock: 0, roastReservedStock: 0, price: 98.00, presalePrice: 85.00, deposit: 25.00, status: 'on_sale' },
+  { beanId: 3, stock: 50, reservedStock: 0, roastReservedStock: 0, price: 388.00, presalePrice: 328.00, deposit: 100.00, status: 'presale' },
+  { beanId: 4, stock: 50, reservedStock: 0, roastReservedStock: 0, price: 118.00, presalePrice: 98.00, deposit: 30.00, status: 'on_sale' },
 ]
 
 const now = new Date()
