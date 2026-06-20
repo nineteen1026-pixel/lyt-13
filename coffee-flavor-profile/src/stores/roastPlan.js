@@ -66,16 +66,18 @@ export const useRoastPlanStore = defineStore('roastPlan', () => {
     return roastPlans.value.filter(p => p.orderId === orderId)
   }
 
-  async function createRoastPlan({ orderId, orderItemId, beanId, beanName, quantity, roastLevel = null, curveId = null, notes = '' }) {
+  async function createRoastPlan({ orderId, orderItemId, beanId, beanName, quantity, roastLevel = null, curveId = null, notes = '', isPresale = false }) {
     const invStore = useInventoryStore()
 
     const inv = await invStore.getByBeanId(beanId)
     if (!inv) throw new Error('库存记录不存在')
 
-    const roastReserved = inv.roastReservedStock || 0
-    const availableForRoast = inv.reservedStock - roastReserved
-    if (availableForRoast < quantity) {
-      throw new Error(`${beanName || '商品'} 可用于烘焙排产的库存不足`)
+    if (!isPresale) {
+      const roastReserved = inv.roastReservedStock || 0
+      const availableForRoast = inv.reservedStock - roastReserved
+      if (availableForRoast < quantity) {
+        throw new Error(`${beanName || '商品'} 可用于烘焙排产的库存不足`)
+      }
     }
 
     const now = new Date()
@@ -90,6 +92,7 @@ export const useRoastPlanStore = defineStore('roastPlan', () => {
       estimatedDeliveryDate: calculateEstimatedDelivery(now),
       roastLevel,
       curveId,
+      isPresale: !!isPresale,
       startedAt: null,
       completedAt: null,
       notes,
@@ -101,7 +104,9 @@ export const useRoastPlanStore = defineStore('roastPlan', () => {
       const id = await db.roastPlans.add(planData)
       planData.id = id
 
-      await invStore.reserveRoastStock(beanId, quantity)
+      if (!isPresale) {
+        await invStore.reserveRoastStock(beanId, quantity)
+      }
 
       roastPlans.value.push(planData)
       return planData
@@ -167,7 +172,9 @@ export const useRoastPlanStore = defineStore('roastPlan', () => {
 
     await db.transaction('rw', db.roastPlans, db.inventory, async () => {
       await db.roastPlans.update(planId, updateData)
-      await invStore.releaseRoastStock(plan.beanId, plan.quantity)
+      if (!plan.isPresale) {
+        await invStore.releaseRoastStock(plan.beanId, plan.quantity)
+      }
     })
 
     const idx = roastPlans.value.findIndex(p => p.id === planId)
@@ -195,7 +202,9 @@ export const useRoastPlanStore = defineStore('roastPlan', () => {
 
     await db.transaction('rw', db.roastPlans, db.inventory, async () => {
       await db.roastPlans.update(planId, updateData)
-      await invStore.releaseRoastStock(plan.beanId, plan.quantity)
+      if (!plan.isPresale) {
+        await invStore.releaseRoastStock(plan.beanId, plan.quantity)
+      }
     })
 
     const idx = roastPlans.value.findIndex(p => p.id === planId)

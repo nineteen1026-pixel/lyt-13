@@ -377,6 +377,7 @@ export const useOrderStore = defineStore('order', () => {
             beanName: item.beanName,
             quantity: item.quantity,
             notes: `订单 ${orderData.orderNo} - ${item.beanName}`,
+            isPresale: true,
           })
           plans.push(plan)
         }
