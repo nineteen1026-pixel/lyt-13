@@ -449,6 +449,11 @@ ${e.notes ? `<div class="card-notes">${escapeHtml(e.notes)}</div>` : ''}
     data.id = id
     beans.value.push(data)
     await ensureBeanSkus(id, basePrice)
+
+    const { useInventoryStore } = await import('./inventory.js')
+    const inventoryStore = useInventoryStore()
+    await inventoryStore.loadAll()
+
     return id
   }
 
