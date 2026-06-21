@@ -209,12 +209,96 @@ const SEED_PROMOTIONS = [
   },
 ]
 
+const SEED_MEMBERS = [
+  { name: '张三', phone: '13800138000', points: 5000, level: 'gold' },
+  { name: '李四', phone: '13900139000', points: 2000, level: 'silver' },
+  { name: '王五', phone: '13700137000', points: 500, level: 'normal' },
+]
+
+function generatePointProductSeeds(nowStr) {
+  return [
+    {
+      name: '耶加雪菲 250g 咖啡豆',
+      type: 'bean',
+      points: 2800,
+      stock: 20,
+      status: 'active',
+      beanId: 1,
+      skuId: 5,
+      couponTemplateId: null,
+      description: '埃塞俄比亚耶加雪菲，水洗处理，花香柑橘调',
+      sortOrder: 1,
+      createdAt: nowStr,
+      updatedAt: nowStr,
+    },
+    {
+      name: '哥伦比亚慧兰 250g 咖啡豆',
+      type: 'bean',
+      points: 2200,
+      stock: 15,
+      status: 'active',
+      beanId: 4,
+      skuId: 41,
+      couponTemplateId: null,
+      description: '哥伦比亚慧兰产区，水洗处理，焦糖坚果调',
+      sortOrder: 2,
+      createdAt: nowStr,
+      updatedAt: nowStr,
+    },
+    {
+      name: '曼特宁黄金 250g 咖啡豆',
+      type: 'bean',
+      points: 1800,
+      stock: 25,
+      status: 'active',
+      beanId: 2,
+      skuId: 17,
+      couponTemplateId: null,
+      description: '印尼苏门答腊曼特宁，湿刨法，醇厚草本',
+      sortOrder: 3,
+      createdAt: nowStr,
+      updatedAt: nowStr,
+    },
+    {
+      name: '满200减30优惠券',
+      type: 'coupon',
+      points: 800,
+      stock: 100,
+      status: 'active',
+      beanId: null,
+      skuId: null,
+      couponTemplateId: null,
+      description: '全场通用，满200元减30元',
+      sortOrder: 4,
+      createdAt: nowStr,
+      updatedAt: nowStr,
+    },
+    {
+      name: '9折优惠券',
+      type: 'coupon',
+      points: 1500,
+      stock: 50,
+      status: 'active',
+      beanId: null,
+      skuId: null,
+      couponTemplateId: null,
+      description: '全场9折，无门槛使用',
+      sortOrder: 5,
+      createdAt: nowStr,
+      updatedAt: nowStr,
+    },
+  ]
+}
+
 export async function seedDatabase() {
   const beanCount = await db.beans.count()
   const skuCount = await db.beanSkus.count()
   const promotionCount = await db.promotions.count()
   const curveCount = await db.roastCurves.count()
   const paramCount = await db.extractionParams.count()
+  const memberCount = await db.members.count()
+  const pointProductCount = await db.pointProducts.count()
+  const couponTemplateCount = await db.couponTemplates.count()
 
   const nowStr = new Date().toISOString()
 
@@ -241,5 +325,71 @@ export async function seedDatabase() {
   if (paramCount === 0) {
     const seedRecords = generateAllSeedRecords()
     await db.extractionParams.bulkAdd(seedRecords.map(r => ({ ...r, createdAt: nowStr, updatedAt: nowStr })))
+  }
+
+  if (couponTemplateCount === 0) {
+    const couponTemplates = [
+      {
+        name: '满200减30',
+        type: 'full_reduction',
+        discountType: 'fixed',
+        discount: 30,
+        minAmount: 200,
+        scope: 'all',
+        scopeValue: '',
+        validType: 'days',
+        validDays: 30,
+        validStart: null,
+        validEnd: null,
+        totalCount: 200,
+        issuedCount: 0,
+        status: 'active',
+        promotionId: null,
+        createdAt: nowStr,
+        updatedAt: nowStr,
+      },
+      {
+        name: '9折优惠券',
+        type: 'discount',
+        discountType: 'percentage',
+        discount: 10,
+        minAmount: 0,
+        scope: 'all',
+        scopeValue: '',
+        validType: 'days',
+        validDays: 15,
+        validStart: null,
+        validEnd: null,
+        totalCount: 100,
+        issuedCount: 0,
+        status: 'active',
+        promotionId: null,
+        createdAt: nowStr,
+        updatedAt: nowStr,
+      },
+    ]
+    await db.couponTemplates.bulkAdd(couponTemplates)
+  }
+
+  if (memberCount === 0) {
+    await db.members.bulkAdd(SEED_MEMBERS.map(m => ({ ...m, createdAt: nowStr, updatedAt: nowStr })))
+  }
+
+  if (pointProductCount === 0) {
+    const templates = await db.couponTemplates.toArray()
+    const fullReductionTpl = templates.find(t => t.name === '满200减30')
+    const discountTpl = templates.find(t => t.name === '9折优惠券')
+    
+    const products = generatePointProductSeeds(nowStr)
+    products.forEach(p => {
+      if (p.type === 'coupon') {
+        if (p.name.includes('200减30') && fullReductionTpl) {
+          p.couponTemplateId = fullReductionTpl.id
+        } else if (p.name.includes('9折') && discountTpl) {
+          p.couponTemplateId = discountTpl.id
+        }
+      }
+    })
+    await db.pointProducts.bulkAdd(products)
   }
 }

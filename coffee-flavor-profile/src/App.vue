@@ -30,6 +30,7 @@
       <CouponCenter v-if="activeTab === 'coupon'" />
       <OrderManagement v-if="activeTab === 'order'" />
       <RoastSchedule v-if="activeTab === 'roastSchedule'" />
+      <PointsMall v-if="activeTab === 'points'" />
       <BeanTraceability v-if="activeTab === 'traceability'" :initialBeanId="traceabilityBeanId" :viewData="traceabilityViewData" :chunkProgress="chunkProgress" :loading="loadingBinData" />
     </div>
   </div>
@@ -50,6 +51,7 @@ import PromotionManagement from './components/PromotionManagement.vue'
 import CouponCenter from './components/CouponCenter.vue'
 import OrderManagement from './components/OrderManagement.vue'
 import RoastSchedule from './components/RoastSchedule.vue'
+import PointsMall from './components/PointsMall.vue'
 import BeanTraceability from './components/BeanTraceability.vue'
 import { useCoffeeStore } from './stores/coffee.js'
 import { useRoastPlanStore } from './stores/roastPlan.js'
@@ -144,6 +146,7 @@ const tabs = [
   { key: 'inventory', icon: '📦', label: '库存管理' },
   { key: 'promotion', icon: '🎁', label: '营销活动' },
   { key: 'coupon', icon: '🎫', label: '优惠券中心' },
+  { key: 'points', icon: '🎁', label: '积分商城' },
   { key: 'cupping', icon: '🔍', label: '杯测对比' },
   { key: 'bean', icon: '🫘', label: '豆种登记' },
   { key: 'curve', icon: '📈', label: '烘焙曲线' },

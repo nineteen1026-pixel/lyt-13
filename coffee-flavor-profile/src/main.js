@@ -9,6 +9,7 @@ import { useOrderStore } from './stores/order.js'
 import { useCouponStore } from './stores/coupon.js'
 import { useExtractionParamsStore } from './stores/extractionParams.js'
 import { useRoastPlanStore } from './stores/roastPlan.js'
+import { usePointsStore } from './stores/points.js'
 
 const pinia = createPinia()
 const app = createApp(App)
@@ -23,6 +24,7 @@ seedDatabase().then(async () => {
   const couponStore = useCouponStore()
   const extractionStore = useExtractionParamsStore()
   const roastPlanStore = useRoastPlanStore()
+  const pointsStore = usePointsStore()
 
   await coffeeStore.loadAll()
 
@@ -35,6 +37,7 @@ seedDatabase().then(async () => {
   await roastPlanStore.loadAll()
   await orderStore.loadAll()
   await extractionStore.loadAll()
+  await pointsStore.loadAll()
 
   orderStore.startTimeoutChecker()
   setInterval(() => {

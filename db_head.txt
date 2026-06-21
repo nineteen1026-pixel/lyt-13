@@ -2,7 +2,7 @@ import Dexie from 'dexie'
 
 const db = new Dexie('CoffeeFlavorProfile')
 
-db.version(12).stores({
+db.version(11).stores({
   beans: '++id, name, origin, variety, process, flavorTags, createdAt',
   roasts: '++id, beanId, curveId, date, level, temperature, duration, notes, createdAt',
   extractions: '++id, roastId, beanId, date, method, ratio, temperature, time, notes, createdAt',
@@ -22,10 +22,6 @@ db.version(12).stores({
   recommendationFeedbacks: '++id, paramRecordId, beanVariety, roastLevel, satisfaction, actualUsed, createdAt',
   orderQRCodes: '++id, orderId, beanId, beanName, skuId, skuWeight, skuGrind, qrUrl, snapshot, generatedAt, createdAt',
   roastPlans: '++id, orderId, orderItemId, beanId, beanName, skuId, skuWeight, skuGrind, quantity, status, scheduledDate, estimatedDeliveryDate, roastLevel, curveId, startedAt, completedAt, notes, createdAt, updatedAt',
-  members: '++id, name, phone, points, level, createdAt, updatedAt',
-  pointsLog: '++id, memberId, type, points, balance, reason, orderId, createdAt',
-  pointProducts: '++id, name, type, points, stock, status, beanId, skuId, couponTemplateId, description, sortOrder, createdAt, updatedAt',
-  pointOrders: '++id, orderNo, memberId, memberName, memberPhone, productId, productType, productName, points, quantity, status, verifyCode, verifiedAt, skuId, beanId, couponId, createdAt, updatedAt',
 }).upgrade(async tx => {
   const inventoryTable = tx.table('inventory')
   if (!inventoryTable) return
